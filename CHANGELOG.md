@@ -1,5 +1,26 @@
 # Changelog - Gang Retaliation
 
+## [1.4.6] - 2026-11-16
+
+### English
+
+#### Fixed
+- **Crash on the map.** The STRONGHOLDS filter could read a map marker the game had already removed.
+- **STRONGHOLDS filter.** With STRONGHOLDS as the only checked box, the map shows only strongholds
+  (before, they stayed hidden). With no box checked, the map shows everything, strongholds included.
+
+Thanks to **RedFalcon** for finding the fix and writing the code for it.
+
+### Español
+
+#### Arreglado
+- **Crash en el mapa.** El filtro GUARIDAS podía leer un marcador del mapa que el juego ya había
+  borrado.
+- **Filtro GUARIDAS.** Con GUARIDAS como única casilla marcada, el mapa muestra solo las guaridas
+  (antes quedaban ocultas). Sin ninguna casilla marcada, el mapa muestra todo, guaridas incluidas.
+
+Gracias a **RedFalcon** por encontrar el arreglo y escribir el código.
+
 ## [1.4.5] - 2026-11-16
 
 ### English

@@ -1629,6 +1629,7 @@ public func GRApplyMappinIcon(mappin: wref<IMappin>, icon: inkImageRef, view: In
     }
 }
 
+// Map filter fix by RedFalcon (Gang Retaliation History), 1.4.6. Thanks!
 // Map filter crash fix: the filter code must never call GetScriptData() on a controller's mappin outside the
 // vanilla bind path (the native mappin can already be freed while its widget is still in the spawn container).
 // The script data is cached here, where the mappin is known to be alive, and the filter code only reads the cache.
