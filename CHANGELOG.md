@@ -1,6 +1,6 @@
 # Changelog - Gang Retaliation
 
-## [Unreleased]
+## [1.4.5] - 2026-11-16
 
 ### English
 

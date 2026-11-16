@@ -1629,12 +1629,41 @@ public func GRApplyMappinIcon(mappin: wref<IMappin>, icon: inkImageRef, view: In
     }
 }
 
+// Map filter crash fix: the filter code must never call GetScriptData() on a controller's mappin outside the
+// vanilla bind path (the native mappin can already be freed while its widget is still in the spawn container).
+// The script data is cached here, where the mappin is known to be alive, and the filter code only reads the cache.
+@addField(BaseWorldMapMappinController)
+private let m_grStronghold: ref<GRStrongholdMappinData>;
+
+@addField(BaseWorldMapMappinController)
+private let m_grIntel: ref<GRIntelMappinData>;
+
+@addMethod(BaseWorldMapMappinController)
+public func GRCacheMappinData() -> Void {
+    this.m_grStronghold = null;
+    this.m_grIntel = null;
+    let mappin: wref<IMappin> = this.GetMappin();
+    if !IsDefined(mappin) {
+        return;
+    }
+    let data: wref<MappinScriptData> = mappin.GetScriptData();
+    if !IsDefined(data) {
+        return;
+    }
+    this.m_grStronghold = data as GRStrongholdMappinData;
+    this.m_grIntel = data as GRIntelMappinData;
+}
+
 // Mapa grande. Un grupo de marcadores (varios juntos con el zoom alejado) conserva el icono del juego.
 @wrapMethod(BaseWorldMapMappinController)
 protected func UpdateIcon() -> Void {
     wrappedMethod();
     if !this.IsCollection() {
+        this.GRCacheMappinData();
         GRApplyMappinIcon(this.GetMappin(), this.iconWidget, GRStrongholdMappinData.ViewMap());
+    } else {
+        this.m_grStronghold = null;
+        this.m_grIntel = null;
     }
 }
 
@@ -1690,16 +1719,7 @@ public func SetData(const data: script_ref<WorldMapTooltipData>, menu: ref<World
 // -----------------------------------------------------------------------------
 
 // 0 = decide el juego (no es del mod, o el filtro rapido no es PERSONALIZADA); 1 = se ve; 2 = oculto.
-public func GRMapFilterState(mappin: wref<IMappin>) -> Int32 {
-    if !IsDefined(mappin) {
-        return 0;
-    }
-    let data: wref<MappinScriptData> = mappin.GetScriptData();
-    if !IsDefined(data) {
-        return 0;
-    }
-    let stronghold: wref<GRStrongholdMappinData> = data as GRStrongholdMappinData;
-    let intel: wref<GRIntelMappinData> = data as GRIntelMappinData;
+public func GRMapFilterState(stronghold: wref<GRStrongholdMappinData>, intel: wref<GRIntelMappinData>) -> Int32 {
     if !IsDefined(stronghold) && !IsDefined(intel) {
         return 0;
     }
@@ -1719,20 +1739,47 @@ public func GRMapFilterState(mappin: wref<IMappin>) -> Int32 {
 // Sin filtro activo (TODO), en el mapa de viaje rapido o en un grupo de marcadores no se toca nada.
 @wrapMethod(BaseWorldMapMappinController)
 private final func PlayHideShowAnim() -> Void {
-    if !this.hasCustomFilter || this.isFastTravelEnabled || this.IsCollection() {
+    if this.isFastTravelEnabled || this.IsCollection() {
         wrappedMethod();
         return;
     }
-    let state: Int32 = GRMapFilterState(this.GetMappin());
+    // PROTOTYPE: when GUARIDAS is the only box checked, the game sees no real filter and reports hasCustomFilter=false
+    // for our markers, which used to skip this override (strongholds stayed hidden). Our own markers now go through it anyway.
+    let ours: Bool = IsDefined(this.m_grStronghold) || IsDefined(this.m_grIntel);
+    if !ours {
+        // PROTOTYPE: GUARIDAS is the only box checked (the game reports no other active filter, so it would show
+        // everything): hide every other marker, as any real filter would.
+        let sys: ref<GRStronghold> = GRStronghold.Get(GetGameInstance());
+        if !this.hasCustomFilter && IsDefined(sys) && sys.IsMapCustom() && sys.IsMapFilterOn() {
+            let prevIn: Bool = this.inCustomFilter;
+            this.hasCustomFilter = true;
+            this.inCustomFilter = false;
+            wrappedMethod();
+            this.inCustomFilter = prevIn;
+            this.hasCustomFilter = false;
+        } else {
+            wrappedMethod();
+        }
+        return;
+    }
+    let state: Int32 = GRMapFilterState(this.m_grStronghold, this.m_grIntel);
     if state == 0 {
         wrappedMethod();
         return;
     }
-    // Se devuelve el valor del motor al terminar: el campo es suyo.
+    let savedHas: Bool = this.hasCustomFilter;
+    if state == 2 && !savedHas {
+        // PROTOTYPE: GUARIDAS unchecked AND the game reports no other active filter = nothing selected, so the map
+        // shows everything; our markers must show too instead of being hidden.
+        state = 1;
+    }
+    // Se devuelve el valor del motor al terminar: los campos son suyos.
     let saved: Bool = this.inCustomFilter;
+    this.hasCustomFilter = true;
     this.inCustomFilter = state == 1;
     wrappedMethod();
     this.inCustomFilter = saved;
+    this.hasCustomFilter = savedHas;
 }
 
 // Reaplica el filtro en este marcador si es del mod. true = era del mod.
@@ -1741,17 +1788,7 @@ public func GRReplayMapFilter() -> Bool {
     if this.IsCollection() {
         return false;
     }
-    let mappin: wref<IMappin> = this.GetMappin();
-    if !IsDefined(mappin) {
-        return false;
-    }
-    let data: wref<MappinScriptData> = mappin.GetScriptData();
-    if !IsDefined(data) {
-        return false;
-    }
-    let stronghold: wref<GRStrongholdMappinData> = data as GRStrongholdMappinData;
-    let intel: wref<GRIntelMappinData> = data as GRIntelMappinData;
-    if !IsDefined(stronghold) && !IsDefined(intel) {
+    if !IsDefined(this.m_grStronghold) && !IsDefined(this.m_grIntel) {
         return false;
     }
     this.PlayHideShowAnim();
