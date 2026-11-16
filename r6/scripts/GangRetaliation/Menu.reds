@@ -66,9 +66,102 @@ public class GRMenuData extends ScriptableSystem {
     private let m_page: Int32;
     // Lo mismo para la vista Arsenal (sus 9 bandas fijas tienen su propia pagina).
     private let m_arsenalPage: Int32;
+    // Vista pedida por API para la proxima apertura de la pantalla (indice + 1; 0 = ninguna).
+    private let m_pendingView: Int32;
 
     public static func Get(gi: GameInstance) -> ref<GRMenuData> {
         return GameInstance.GetScriptableSystemsContainer(gi).Get(n"GangRetaliation.GRMenuData") as GRMenuData;
+    }
+
+    // =========================================================================
+    // PUBLIC API FOR ADD-ONS -- stable: these names and signatures will not change.
+    // =========================================================================
+    // The Nemesis screen (hub menu entry n"gangretaliation_nemesis_menu") has three views:
+    //     n"gangs"  |  n"territory"  |  n"arsenal"
+    //
+    // RequestView: makes the Nemesis screen start in `view` the NEXT time it opens. One-shot: the screen
+    // consumes the request when it is built (in its OnInitialize, however it was opened), so later openings
+    // start in the default view (gangs) again. Call it right before you open the screen yourself. Returns
+    // false (nothing stored) for an unknown name.
+    //
+    //     GRMenuData.RequestView(gi, n"territory");
+    public static func RequestView(gi: GameInstance, view: CName) -> Bool {
+        let index: Int32 = GRMenuData.ViewIndex(view);
+        let data: ref<GRMenuData> = GRMenuData.Get(gi);
+        if index < 0 || !IsDefined(data) {
+            GRLog("Menu: API RequestView ignorada (vista desconocida: " + NameToString(view) + ")");
+            return false;
+        }
+        data.m_pendingView = index + 1;
+        return true;
+    }
+
+    // Opening the screen yourself, from a fullscreen menu of the hub (a gameuiMenuGameController): spawn our
+    // menu event on the dispatcher the hub gave you in OnSetMenuEventDispatcher. The hub closes your screen
+    // (you get OnUninitialize) and opens ours:
+    //
+    //     GRMenuData.RequestView(gi, n"gangs");
+    //     this.m_myDispatcher.SpawnEvent(n"OnGangRetaliationApiOpenView");
+    //
+    // (An own @addMethod(MenuScenario_HubMenu) handler that calls OnOpenMenu(n"gangretaliation_nemesis_menu", null)
+    // works the same; the request is consumed whichever way the screen gets opened.)
+    //
+    // OpenView: shortcut for the two lines above when you did not keep the dispatcher. `from` must be your
+    // gameuiMenuGameController living in the hub menu:
+    //
+    //     GRMenuData.OpenView(this, n"arsenal");
+    //
+    // It uses the dispatcher gameuiMenuGameController stores itself, so if your controller overrides
+    // OnSetMenuEventDispatcher it must call super.OnSetMenuEventDispatcher(...). Returns false, opens nothing and
+    // stores no request if: the view name is unknown, Gang Retaliation is disabled in its settings, `from` is
+    // not a gameuiMenuGameController, or it has no dispatcher. In that last case use RequestView + your own event.
+    public static func OpenView(from: ref<inkGameController>, view: CName) -> Bool {
+        let menu: ref<gameuiMenuGameController> = from as gameuiMenuGameController;
+        if !IsDefined(menu) {
+            GRLog("Menu: API OpenView ignorada (from no es un gameuiMenuGameController)");
+            return false;
+        }
+        let player: ref<GameObject> = menu.GetPlayerControlledObject();
+        if !IsDefined(player) {
+            return false;
+        }
+        let gi: GameInstance = player.GetGame();
+        let settings: ref<GRSettings> = GRSettings.Get(gi);
+        if IsDefined(settings) && !settings.enabled {
+            GRLog("Menu: API OpenView ignorada (mod desactivado)");
+            return false;
+        }
+        let dispatcher: wref<inkMenuEventDispatcher> = menu.GangRetaliationGetDispatcher();
+        if !IsDefined(dispatcher) {
+            GRLog("Menu: API OpenView ignorada (el controlador no tiene dispatcher: falta super.OnSetMenuEventDispatcher)");
+            return false;
+        }
+        if !GRMenuData.RequestView(gi, view) {
+            return false;
+        }
+        GRLog("Menu: API OpenView -> " + NameToString(view) + " (evento OnGangRetaliationApiOpenView)");
+        dispatcher.SpawnEvent(n"OnGangRetaliationApiOpenView");
+        return true;
+    }
+
+    // Internal (used by the Nemesis screen): returns the requested view index (0..2) and clears it; -1 = none.
+    public func ConsumePendingView() -> Int32 {
+        let view: Int32 = this.m_pendingView - 1;
+        this.m_pendingView = 0;
+        return view;
+    }
+
+    private static func ViewIndex(view: CName) -> Int32 {
+        if Equals(view, n"gangs") {
+            return 0;
+        }
+        if Equals(view, n"territory") {
+            return 1;
+        }
+        if Equals(view, n"arsenal") {
+            return 2;
+        }
+        return -1;
     }
 
     // API para CET
@@ -230,6 +323,8 @@ public class GRMenuData extends ScriptableSystem {
 // -----------------------------------------------------------------------------
 public class GRNemesisMenuController extends gameuiMenuGameController {
     private let m_data: ref<GRMenuData>;
+    // Dispatcher de eventos del escenario del hub (llega por OnSetMenuEventDispatcher): abre la pantalla de History.
+    private let m_grDispatcher: wref<inkMenuEventDispatcher>;
     private let m_page: Int32;
     private let m_tree: wref<inkCanvas>;
     // Conexiones del arbol: se juntan los tramos y se pintan por capas al final (como trazos SVG apilados).
@@ -305,6 +400,11 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
     private let m_tBorders: array<wref<GRBorder>>;
     private let m_tAtWar: array<Bool>;
     private let m_selDistrict: String;
+    // Intel de la banda en la vista Bandas: barra y textos que el clic de desarrollo actualiza sin rehacer nada.
+    private let m_intelGang: String;
+    private let m_intelFill: wref<inkRectangle>;
+    private let m_intelValue: wref<inkText>;
+    private let m_intelLocated: wref<inkText>;
 
     // Colores de la interfaz del juego (los mismos que Custom Perk Framework).
     private func Red() -> HDRColor {
@@ -397,6 +497,12 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         this.m_arsenalPage = IsDefined(this.m_data) ? this.m_data.GetArsenalPage() : 0;
         this.m_rewards = GRRewards.Get(this.GetPlayerControlledObject().GetGame());
         this.m_selWeapon = -1;
+        // Vista pedida por un add-on (GRMenuData.RequestView / OpenView): vale para esta apertura y se borra.
+        let pending: Int32 = IsDefined(this.m_data) ? this.m_data.ConsumePendingView() : -1;
+        if pending >= 0 && pending <= 2 {
+            this.m_view = pending;
+            GRLog("Menu: vista pedida por API consumida -> " + IntToString(pending) + " (0 bandas, 1 territorio, 2 arsenal)");
+        }
         let root: ref<inkCompoundWidget> = this.GetRootCompoundWidget();
 
         this.CreateBackground(root);
@@ -439,6 +545,13 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
             this.m_data.SetPage(this.m_page);
             this.m_data.SetArsenalPage(this.m_arsenalPage);
         }
+    }
+
+    // El hub entrega aqui el dispatcher de su escenario (MenuScenario_HubMenu): con el se piden cambios de pantalla.
+    protected cb func OnSetMenuEventDispatcher(menuEventDispatcher: wref<inkMenuEventDispatcher>) -> Bool {
+        super.OnSetMenuEventDispatcher(menuEventDispatcher);
+        this.m_grDispatcher = menuEventDispatcher;
+        return true;
     }
 
     // -------------------------------------------------------------------------
@@ -1334,6 +1447,7 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
             lostLabel.Reparent(lostLine);
             this.NewText(lostTurfs, 30, this.Cyan(), n"Medium").Reparent(lostLine);
         }
+        this.AddIntelBar(gangKey);
 
         let cx: Float = this.CenterX();
         let bossY: Float = this.TierY(3);
@@ -1525,6 +1639,19 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         arsenal.RegisterToCallback(n"OnRelease", this, n"OnGRViewArsenalClick");
         arsenal.Reparent(panel);
         this.m_viewArsenal = arsenal;
+
+        // Add-on Gang Retaliation History: cuarto rotulo que abre SU pantalla (no es una vista nuestra, nunca queda activo).
+        if GRHasHistory() {
+            let sep3: ref<inkText> = this.NewText("  |  ", 32, this.Dim(), n"Medium");
+            sep3.SetVAlign(inkEVerticalAlign.Center);
+            sep3.Reparent(panel);
+
+            let history: ref<inkText> = this.NewText(this.Up(this.T("GR-MenuViewHistory")), 32, this.Grey(), n"Bold");
+            history.SetVAlign(inkEVerticalAlign.Center);
+            history.SetInteractive(true);
+            history.RegisterToCallback(n"OnRelease", this, n"OnGRViewHistoryClick");
+            history.Reparent(panel);
+        }
     }
 
     private func CreateTerritory(root: ref<inkCompoundWidget>) {
@@ -1594,9 +1721,35 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         this.PlaySound(n"Button", n"OnPress");
     }
 
-    // TAB: bandas -> territorio -> arsenal -> bandas.
+    // TAB: bandas -> territorio -> arsenal -> bandas. Con el add-on History instalado, desde arsenal abre su pantalla.
     private func ToggleView() {
+        if this.m_view == 2 && GRHasHistory() && IsDefined(this.m_grDispatcher) {
+            this.OpenHistory();
+            return;
+        }
         this.SetView((this.m_view + 1) % 3);
+    }
+
+    // Cambia a la pantalla del add-on Gang Retaliation History sin salir del hub: el evento lo recibe el escenario
+    // del hub (OnGangRetaliationOpenHistory, al final del archivo), que cierra esta pantalla y abre la suya. Es la
+    // misma via que usa RedFalcon para abrir la nuestra desde la suya.
+    private func OpenHistory() {
+        if this.m_fOpen {
+            return;
+        }
+        if !IsDefined(this.m_grDispatcher) {
+            GRLog("Menu: no se puede abrir Gang Retaliation History (sin dispatcher del hub)");
+            return;
+        }
+        this.PlaySound(n"Button", n"OnPress");
+        GRLog("Menu: abriendo Gang Retaliation History (evento OnGangRetaliationOpenHistory)");
+        this.m_grDispatcher.SpawnEvent(n"OnGangRetaliationOpenHistory");
+    }
+
+    protected cb func OnGRViewHistoryClick(evt: ref<inkPointerEvent>) -> Bool {
+        if evt.IsAction(n"click") {
+            this.OpenHistory();
+        }
     }
 
     protected cb func OnGRViewGangsClick(evt: ref<inkPointerEvent>) -> Bool {
@@ -3110,6 +3263,64 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         return false;
     }
 
+    // Intel de la banda, arriba a la derecha del arbol (entre el Jefe y el panel de detalle): titulo, barra de 0 a 100 %
+    // y el numero; al 100 %, "GUARIDA LOCALIZADA" en dorado. Con "Debug log" activado, clic = +25 % (desarrollo).
+    private func AddIntelBar(gangKey: String) {
+        let intel: ref<GRIntelSystem> = GRIntelSystem.Get(this.GetPlayerControlledObject().GetGame());
+        this.m_intelGang = gangKey;
+        if !IsDefined(intel) {
+            return;
+        }
+        let box: ref<inkCanvas> = new inkCanvas();
+        box.SetName(n"gr_intel");
+        box.SetAnchor(inkEAnchor.TopLeft);
+        box.SetMargin(new inkMargin(1880.0, 356.0, 0.0, 0.0));
+        box.SetSize(new Vector2(760.0, 76.0));
+        box.SetInteractive(true);
+        box.RegisterToCallback(n"OnRelease", this, n"OnGRIntelClick");
+        box.Reparent(this.m_tree);
+        this.PlaceText(box, this.Up(this.T("GR-MenuIntel")), 28, this.Light(), n"Bold", 0.0, 0.0);
+        let located: ref<inkText> = this.PlaceText(box, this.Up(this.T("GR-MenuIntelLocated")), 28, this.Gold(), n"Bold", 760.0, 0.0);
+        located.SetAnchorPoint(new Vector2(1.0, 0.0));
+        this.m_intelLocated = located;
+        this.PlaceRect(box, 0.0, 48.0, 600.0, 16.0, this.Empty(), 1.0);
+        let fill: ref<inkRectangle> = this.NewRect(0.0, 16.0, this.Cyan(), 1.0);
+        fill.SetAnchor(inkEAnchor.TopLeft);
+        fill.SetMargin(new inkMargin(0.0, 48.0, 0.0, 0.0));
+        fill.Reparent(box);
+        this.m_intelFill = fill;
+        let value: ref<inkText> = this.PlaceText(box, "", 34, this.Cyan(), n"Bold", 760.0, 36.0);
+        value.SetAnchorPoint(new Vector2(1.0, 0.0));
+        this.m_intelValue = value;
+        this.StyleIntelBar(intel.GetIntel(gangKey));
+    }
+
+    private func StyleIntelBar(value: Int32) {
+        let located: Bool = value >= 100;
+        let color: HDRColor = located ? this.Gold() : this.Cyan();
+        this.m_intelFill.SetSize(new Vector2(600.0 * Cast<Float>(Min(Max(value, 0), 100)) / 100.0, 16.0));
+        this.m_intelFill.SetTintColor(color);
+        this.m_intelValue.SetText(IntToString(value) + " %");
+        this.m_intelValue.SetTintColor(color);
+        this.m_intelLocated.SetVisible(located);
+    }
+
+    // Desarrollo: con "Debug log" activado en los ajustes, clic en la barra = +25 % de intel a esta banda.
+    protected cb func OnGRIntelClick(evt: ref<inkPointerEvent>) -> Bool {
+        if !evt.IsAction(n"click") {
+            return false;
+        }
+        let gi: GameInstance = this.GetPlayerControlledObject().GetGame();
+        let settings: ref<GRSettings> = GRSettings.Get(gi);
+        let intel: ref<GRIntelSystem> = GRIntelSystem.Get(gi);
+        if !IsDefined(settings) || !settings.debugLog || !IsDefined(intel) {
+            return false;
+        }
+        this.StyleIntelBar(intel.AddIntel(this.m_intelGang, 25, "boton de desarrollo"));
+        this.PlaySound(n"Button", n"OnPress");
+        return true;
+    }
+
     protected cb func OnGRCardClick(evt: ref<inkPointerEvent>) -> Bool {
         if !evt.IsAction(n"click") {
             return false;
@@ -3224,15 +3435,59 @@ private final func GRAddNemesisButton() {
     }
     button.SetMargin(new inkMargin(0.0, top, 0.0, 0.0));
 
+    let controller: ref<MenuItemController> = button.GetController() as MenuItemController;
+    controller.Init(GRNemesisMenuItem(GetGameInstance()));
+}
+
+// Datos de la pantalla Nemesis para el boton del hub.
+public func GRNemesisMenuItem(gi: GameInstance) -> MenuData {
     let data: MenuData;
     data.disabled = false;
     data.fullscreenName = n"gangretaliation_nemesis_menu";
     data.identifier = 61;
     data.parentIdentifier = 2;
-    data.label = GRSystem.Get(GetGameInstance()).GetText("GR-MenuButton");
+    data.label = GRSystem.Get(gi).GetText("GR-MenuButton");
     data.icon = n"ico_data_hub";
-    let controller: ref<MenuItemController> = button.GetController() as MenuItemController;
-    controller.Init(data);
+    return data;
+}
+
+// -----------------------------------------------------------------------------
+// Cambio de pantalla dentro del hub, sin cerrarlo
+// -----------------------------------------------------------------------------
+// Una pantalla del hub pide el cambio con dispatcher.SpawnEvent(n"<evento>"); el evento llega al escenario del hub
+// como una llamada al metodo de ese nombre, y OnOpenMenu cierra la pantalla actual y abre la pedida. Los nombres
+// llevan "GangRetaliation" entero: otros mods (History) agregan sus propios metodos a MenuScenario_HubMenu y dos
+// @addMethod con el mismo nombre no compilan.
+
+// Abre la pantalla Nemesis. Lo usa GRMenuData.OpenView; un add-on tambien puede lanzar el evento con su dispatcher.
+@addMethod(MenuScenario_HubMenu)
+protected cb func OnGangRetaliationApiOpenView(userData: ref<IScriptable>) -> Bool {
+    return this.OnOpenMenu(n"gangretaliation_nemesis_menu", null);
+}
+
+// Abre la pantalla del add-on Gang Retaliation History (el nombre del menu es el de su History.reds: si RedFalcon
+// lo cambia, hay que cambiarlo aqui). Sin el add-on no existe ni el metodo ni el rotulo que lanza el evento.
+@if(ModuleExists("GangRetaliationHistory"))
+@addMethod(MenuScenario_HubMenu)
+protected cb func OnGangRetaliationOpenHistory(userData: ref<IScriptable>) -> Bool {
+    return this.OnOpenMenu(n"gangretaliationhistory_history_menu", null);
+}
+
+// Dispatcher que gameuiMenuGameController guarda en su OnSetMenuEventDispatcher (campo privado de la clase base):
+// con el, GRMenuData.OpenView lanza el evento desde el controlador de otro mod.
+@addMethod(gameuiMenuGameController)
+public final func GangRetaliationGetDispatcher() -> wref<inkMenuEventDispatcher> {
+    return this.m_baseEventDispatcher;
+}
+
+@if(ModuleExists("GangRetaliationHistory"))
+public func GRHasHistory() -> Bool {
+    return true;
+}
+
+@if(!ModuleExists("GangRetaliationHistory"))
+public func GRHasHistory() -> Bool {
+    return false;
 }
 
 @if(ModuleExists("DarkFuture.UI"))

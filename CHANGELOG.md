@@ -1,5 +1,87 @@
 # Changelog - Gang Retaliation
 
+## [Unreleased]
+
+### English
+
+#### Added
+- **Intel.** Knock a ganger out and press **1** ("Extract data"): an "Extracting intel" bar appears and
+  fills in 3 seconds. Stay close or it is cancelled. Each extraction adds intel on that gang: common
+  ganger +5%, Soldier +10%, Lieutenant +25%, Boss +50%. Common gangers can be extracted at most once
+  per fight. A Nemesis brought below his flee line may, on a coin flip, fall unconscious instead of
+  running away (only if he is not the last one standing). Knocked-out gangers you can extract from
+  get a marker over the body, also on the minimap.
+- **Intel bar.** NEMESIS → GANGS shows the intel you have on each gang, and "STRONGHOLD LOCATED" at 100%.
+- **Gang Retaliation History integration.** With RedFalcon's add-on installed, the NEMESIS screen
+  gets a HISTORY tab (click it, or TAB from ARSENAL). Add-ons can also open the NEMESIS screen on a
+  given view (`GRMenuData.OpenView` / `RequestView`).
+
+#### Changed
+- **Strongholds move.** Each gang picks its stronghold among the places where the game already puts
+  its gangers (organized crime activities first, then reported crimes), away from missions, safe
+  spots, V and other strongholds. Take it and the gang moves somewhere else, and your intel on it
+  drops back to 0. Voodoo Boys and Barghest keep their fixed stronghold.
+- **Strongholds are hidden until you find them.** A gang's stronghold only shows on the map once you
+  have 100% intel on that gang, or after you reach or take it. This also applies to existing saves.
+- **New stronghold icon** on the map, minimap and world marker, with its own title
+  ("Stronghold (gang)") instead of the NCPD one.
+- **STRONGHOLDS map filter.** A new checkbox in the map's custom filter shows or hides strongholds,
+  on by default. Strongholds no longer disappear when the NCPD scanner filter is off.
+- **Nemeses are immune to traffic.** A car V is not driving (traffic, police, allies, a driverless
+  car) no longer hurts or kills a Nemesis, including the fall right after the hit. Running one over
+  with V's own car still counts.
+
+#### Fixed
+- **Stronghold guards no longer float or ignore V.** The stronghold now fills when V is about 70 m
+  away instead of 120 m, each guard waits for solid ground and appears out of V's sight, and guards
+  are awake and able to spot V from the start.
+- **Invincible Nemeses.** A Nemesis who came from a mission ganger could keep that ganger's
+  god mode (took no damage, or could not die). The mod now removes it when it spawns.
+- **Enemies no longer end up inside buildings.** Fleeing Nemeses and leftover gangers walking away
+  only move to a reachable spot on the street, on the same floor and out of V's sight. If there is
+  none, they stay where they are.
+
+### Español
+
+#### Nuevo
+- **Intel.** Deja inconsciente a un pandillero y pulsa **1** ("Extraer datos"): aparece la barra "Extrayendo información"
+  y se llena en 3 segundos. Si te alejas, se cancela. Cada extracción suma intel de esa banda:
+  pandillero común +5 %, Soldado +10 %, Teniente +25 %, Jefe +50 %. A los comunes se les puede
+  extraer como mucho a uno por pelea. Un Némesis que baja de su línea de huida puede, a cara o cruz,
+  caer inconsciente en vez de huir (solo si no es el último en pie). Los caídos a los que puedes
+  extraer datos llevan un marcador sobre el cuerpo, también en el minimapa.
+- **Barra de intel.** NÉMESIS → BANDAS muestra la intel que tienes de cada banda, y "GUARIDA
+  LOCALIZADA" al 100 %.
+- **Integración con Gang Retaliation History.** Con el add-on de RedFalcon instalado, la pantalla
+  NÉMESIS tiene una pestaña HISTORIAL (clic, o TAB desde ARSENAL). Los add-ons también pueden abrir
+  la pantalla NÉMESIS en una vista concreta (`GRMenuData.OpenView` / `RequestView`).
+
+#### Cambiado
+- **Las guaridas se mudan.** Cada banda elige su guarida entre los lugares donde el juego ya pone a
+  sus pandilleros (primero actividades de crimen organizado, después crímenes denunciados), lejos de
+  misiones, lugares seguros, V y otras guaridas. Si la tomas, la banda se muda a otro lado y tu intel
+  sobre ella vuelve a 0. Voodoo Boys y Barghest mantienen su guarida fija.
+- **Las guaridas están ocultas hasta que las encuentras.** La guarida de una banda solo sale en el
+  mapa con su intel al 100 %, o después de llegar a ella o tomarla. También en partidas existentes.
+- **Ícono nuevo de guarida** en el mapa, el minimapa y el marcador del mundo, con título propio
+  ("Guarida (banda)") en vez del de la NCPD.
+- **Filtro GUARIDAS en el mapa.** Una casilla nueva en el filtro personalizado del mapa muestra u
+  oculta las guaridas, prendida por defecto. Las guaridas ya no desaparecen al apagar el filtro del
+  escáner NCPD.
+- **Los Némesis son inmunes al tráfico.** Un auto que no maneja V (tráfico, policía, aliados, un
+  auto sin conductor) ya no hiere ni mata a un Némesis, tampoco con la caída justo después del golpe.
+  Atropellarlo con el auto de V sigue contando.
+
+#### Arreglado
+- **Los guardias de las guaridas ya no flotan ni ignoran a V.** La guarida se llena cuando V está a
+  unos 70 m en vez de 120 m, cada guardia espera a tener suelo firme y aparece fuera de la vista de
+  V, y los guardias están despiertos y pueden detectar a V desde el principio.
+- **Némesis invencibles.** Un Némesis que salió de un pandillero de misión podía heredar su modo
+  dios (no recibía daño o no podía morir). Ahora el mod se lo quita al aparecer.
+- **Los enemigos ya no quedan dentro de edificios.** Los Némesis que huyen y los pandilleros que se
+  van al terminar un encuentro solo se mueven a un punto alcanzable en la calle, en el mismo piso y
+  fuera de la vista de V. Si no hay ninguno, se quedan donde están.
+
 ## [1.4.0] - 2026-11-13
 
 ### English

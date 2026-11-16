@@ -251,6 +251,11 @@ public class GRDetection extends ScriptableSystem {
         ArrayClear(this.m_combatants);
         this.m_someoneFled = false;
         this.m_hasPendingFlee = false;
+        // Intel: el "un pandillero comun por combate" vuelve a empezar.
+        let intel: ref<GRIntelSystem> = GRIntelSystem.Get(this.GetGameInstance());
+        if IsDefined(intel) {
+            intel.OnFightReset();
+        }
     }
 
     private func CheckLastStanding() {
@@ -733,8 +738,14 @@ public class GRDetection extends ScriptableSystem {
         }
         let player: ref<PlayerPuppet> = GetPlayer(gi);
         if IsDefined(player) {
-            let pos: Vector4 = GRAwayFrom(npc, player, 80.0);
-            GameInstance.GetTeleportationFacility(gi).Teleport(npc, pos, Vector4.ToRotation(pos - player.GetWorldPosition()));
+            // Solo a un punto validado (ver GRSafeTeleportSpot). Antes, sin punto del navmesh se usaba la
+            // linea recta a 80 m y solia caer dentro de un edificio (reporte de Nexus 04/11). Sin punto
+            // seguro no se lo mueve: sigue corriendo y escondido como los demas.
+            let pos: Vector4;
+            if GRSafeTeleportSpot(npc, player, 80.0, pos) {
+                GameInstance.GetTeleportationFacility(gi).Teleport(npc, pos, Vector4.ToRotation(pos - player.GetWorldPosition()));
+                GRLog("Huida con flash: teletransporte validado a " + FloatToString(Vector4.Distance(pos, player.GetWorldPosition())) + " m de V");
+            }
         }
         ArrayPush(this.m_hiding, candidate);
         this.Promote(candidate, "fled");
@@ -798,6 +809,14 @@ public class GRDetection extends ScriptableSystem {
             return;
         }
         this.AddCombatant(npc.GetEntityID());
+        // Intel: un elegible que baja de su linea de huida queda inconsciente (no huye); IsNeutralized ya lo descarta.
+        let intel: ref<GRIntelSystem> = GRIntelSystem.Get(this.GetGameInstance());
+        if IsDefined(intel) {
+            intel.NoteCombatant(npc);
+            let settings: ref<GRSettings> = GRSettings.Get(this.GetGameInstance());
+            let fleeBase: Int32 = IsDefined(settings) ? settings.fleeHealthPercent : 35;
+            intel.TryKnockOut(npc, this.GetHealthPercent(npc), GRIntegrations.GetFleePercent(fleeBase));
+        }
         this.UpsertCandidate(npc);
         this.CheckLastStanding();
     }
@@ -817,6 +836,11 @@ public class GRDetection extends ScriptableSystem {
                 spawner.RecordHitBy(nemesisId, "v");
             }
             spawner.MarkDead(id);
+        }
+        // Intel: si era un cuerpo extraible, se le quita el icono.
+        let intel: ref<GRIntelSystem> = GRIntelSystem.Get(this.GetGameInstance());
+        if IsDefined(intel) {
+            intel.OnNPCDeath(id);
         }
         let index: Int32 = this.FindCandidate(id);
         if index >= 0 {
@@ -1123,7 +1147,8 @@ public func GRStopFlee() -> Void {
 
 // Unico armado de AIMoveToCommand del mod (huida, escondite, sobrantes que se van).
 public func GRMoveTo(puppet: ref<NPCPuppet>, pos: Vector4, type: moveMovementType, distance: Float) {
-    if !IsDefined(puppet) || !IsDefined(puppet.GetAIControllerComponent()) {
+    // Vector vacio = GRAwayFrom no encontro destino valido: no se manda la orden (ya lo dijo el log).
+    if !IsDefined(puppet) || !IsDefined(puppet.GetAIControllerComponent()) || Vector4.IsZero(pos) {
         return;
     }
     let wp: WorldPosition;
@@ -1141,7 +1166,8 @@ public func GRMoveTo(puppet: ref<NPCPuppet>, pos: Vector4, type: moveMovementTyp
 
 // Punto del navmesh (a pie) a unos 'distance' metros del NPC, en la direccion contraria a V. Prueba
 // desvios de hasta 60 grados y distancias mas cortas: el punto en linea recta solia caer dentro de un
-// edificio y el NPC no encontraba camino. Sin punto valido, el de linea recta como antes.
+// edificio y el NPC no encontraba camino. Sin punto valido, vector vacio: GRMoveTo no manda la orden y
+// el NPC no se mueve (antes la linea recta sin validar, que podia caer dentro de un edificio).
 public func GRAwayFrom(npc: ref<GameObject>, player: ref<GameObject>, distance: Float) -> Vector4 {
     let offset: Vector4 = npc.GetWorldPosition() - player.GetWorldPosition();
     offset.Z = 0.0;
@@ -1165,7 +1191,73 @@ public func GRAwayFrom(npc: ref<GameObject>, player: ref<GameObject>, distance: 
             }
         }
     }
-    return from + away * distance;
+    GRLog("Alejarse de V: sin destino valido en el navmesh, no se mueve (a " + FloatToString(Vector4.Distance(from, player.GetWorldPosition())) + " m de V)");
+    return Vector4.EmptyVector();
+}
+
+// Destino seguro para teletransportar a un NPC lejos de V (huida con flash). Mismos candidatos que
+// GRAwayFrom, pero cada punto tiene que estar en el mismo piso (menos de 3 m de altura), no estar
+// pegado a una pared (IsClearSpot), quedar fuera de la vista de V y tener camino a pie desde donde esta
+// el NPC: los interiores cerrados y las azoteas tambien tienen navmesh. Sin punto valido: false y no
+// se usa ningun punto de reemplazo.
+public func GRSafeTeleportSpot(npc: ref<GameObject>, player: ref<PlayerPuppet>, distance: Float, out spot: Vector4) -> Bool {
+    let gi: GameInstance = npc.GetGame();
+    let nav: ref<NavigationSystem> = GameInstance.GetNavigationSystem(gi);
+    let spawner: ref<GRSpawner> = GRSpawner.Get(gi);
+    if !IsDefined(nav) || !IsDefined(spawner) {
+        GRLog("Huida con flash: sin sistema de navegacion, no se teletransporta");
+        return false;
+    }
+    let offset: Vector4 = npc.GetWorldPosition() - player.GetWorldPosition();
+    offset.Z = 0.0;
+    if Vector4.Length(offset) < 0.5 {
+        offset = player.GetWorldForward();
+    }
+    let away: Vector4 = Vector4.Normalize(offset);
+    let from: Vector4 = npc.GetWorldPosition();
+    let scales: array<Float> = [1.0, 0.7, 0.45];
+    let angles: array<Float> = [0.0, 30.0, -30.0, 60.0, -60.0];
+    // Descartes: sin navmesh, otro piso, pegado a pared, a la vista de V, sin camino a pie.
+    let fails: array<Int32> = [0, 0, 0, 0, 0];
+    for scale in scales {
+        for angle in angles {
+            let dir: Vector4 = Vector4.RotateAxis(away, new Vector4(0.0, 0.0, 1.0, 0.0), angle / 180.0 * Pi());
+            let raw: Vector4 = from + dir * (distance * scale);
+            let pos: Vector4 = nav.GetNearestNavmeshPointBelowOnlyHumanNavmesh(raw + new Vector4(0.0, 0.0, 2.0, 0.0), 2.0, 6);
+            if Vector4.IsZero(pos) {
+                fails[0] += 1;
+            } else {
+                if AbsF(pos.Z - from.Z) > 3.0 {
+                    fails[1] += 1;
+                } else {
+                    if !spawner.IsClearSpot(pos) {
+                        fails[2] += 1;
+                    } else {
+                        if spawner.HasLineOfSight(player, pos) {
+                            fails[3] += 1;
+                        } else {
+                            let walkable: Bool = false;
+                            let path: ref<NavigationPath> = nav.CalculatePathOnlyHumanNavmesh(from, pos, NavGenAgentSize.Human, 1.0);
+                            if IsDefined(path) && ArraySize(path.path) >= 2 {
+                                let last: Vector4 = path.path[ArraySize(path.path) - 1];
+                                walkable = Vector4.Distance(last, pos) < 3.0 && path.CalculateLength() < Vector4.Distance(from, pos) * 2.0 + 10.0;
+                            }
+                            if !walkable {
+                                fails[4] += 1;
+                            } else {
+                                spot = pos;
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    GRLog("Huida con flash: puntos descartados, sin destino seguro; no se teletransporta (sin navmesh=" + IntToString(fails[0])
+        + ", otro piso=" + IntToString(fails[1]) + ", pared=" + IntToString(fails[2]) + ", a la vista=" + IntToString(fails[3])
+        + ", sin camino=" + IntToString(fails[4]) + ")");
+    return false;
 }
 
 
