@@ -39,6 +39,8 @@ public class GREnglish extends ModLocalizationPackage {
         this.Text("GR-SetMaxPerGangDesc", "How many named enemies each gang hierarchy can hold.");
         this.Text("GR-SetBossBar", "Nemesis boss bar");
         this.Text("GR-SetBossBarDesc", "Shows the boss health bar with the Nemesis name when they show up or you hit them. Escorts don't get one.");
+        this.Text("GR-SetStrongholdBanner", "Stronghold map banner");
+        this.Text("GR-SetStrongholdBannerDesc", "Shows the gang's banner picture at the bottom of the stronghold tooltip on the world map.");
         this.Text("GR-SetNotifyCenter", "Center-screen notifications");
         this.Text("GR-SetNotifyCenterDesc", "ON: Nemesis updates show as a big warning in the middle of the screen. OFF: they go quietly to the side log (like looted items). Either way they wait until cutscenes, braindances and menus are over.");
         this.Text("GR-SetEscapeHealth", "Wounded escape threshold (%)");
@@ -131,7 +133,10 @@ public class GREnglish extends ModLocalizationPackage {
         this.Text("GR-IntelGained", "{gang} intel: {pct} %");
         this.Text("GR-IntelLocated", "{gang} stronghold located");
         this.Text("GR-StrongholdMapTitle", "Stronghold ({gang})");
-        this.Text("GR-MapFilterStrongholds", "STRONGHOLDS");
+        this.Text("GR-StrongholdMapDesc", "Clear the stronghold to scatter and weaken the gang.");
+        this.Text("GR-IntelMapTitle", "{gang} intel target");
+        this.Text("GR-IntelMapDesc", "Knocked out. Extract their data to learn where the stronghold is.");
+        this.Text("GR-MapFilterStrongholds", "GANG RETALIATION");
         this.Text("GR-MenuIntel", "Intel gathered");
         this.Text("GR-MenuIntelLocated", "Stronghold located");
         this.Text("GR-MenuQuality", "Quality");
@@ -432,6 +437,8 @@ public class GRSpanish extends ModLocalizationPackage {
         this.Text("GR-SetMaxPerGangDesc", "Cuántos enemigos con nombre puede tener la jerarquía de cada banda.");
         this.Text("GR-SetBossBar", "Barra de jefe de los Némesis");
         this.Text("GR-SetBossBarDesc", "Muestra la barra de vida de jefe con el nombre del Némesis cuando aparece o le pegas. La escolta no la tiene.");
+        this.Text("GR-SetStrongholdBanner", "Banner de las guaridas en el mapa");
+        this.Text("GR-SetStrongholdBannerDesc", "Muestra la imagen de la pandilla al final del tooltip de la guarida en el mapa del mundo.");
         this.Text("GR-SetNotifyCenter", "Avisos en el centro de la pantalla");
         this.Text("GR-SetNotifyCenterDesc", "SÍ: las novedades de los Némesis salen como aviso grande en el centro. NO: van discretas al registro lateral (como los objetos saqueados). En los dos casos esperan a que terminen las escenas, las danzas cerebrales y los menús.");
         this.Text("GR-SetEscapeHealth", "Vida para huida herida (%)");
@@ -524,7 +531,10 @@ public class GRSpanish extends ModLocalizationPackage {
         this.Text("GR-IntelGained", "Intel de {gang}: {pct} %");
         this.Text("GR-IntelLocated", "Guarida de {gang} localizada");
         this.Text("GR-StrongholdMapTitle", "Guarida ({gang})");
-        this.Text("GR-MapFilterStrongholds", "GUARIDAS");
+        this.Text("GR-StrongholdMapDesc", "Limpia la guarida para dispersar y debilitar a la pandilla.");
+        this.Text("GR-IntelMapTitle", "Objetivo de intel de {gang}");
+        this.Text("GR-IntelMapDesc", "Inconsciente. Extrae sus datos para saber dónde está la guarida.");
+        this.Text("GR-MapFilterStrongholds", "GANG RETALIATION");
         this.Text("GR-MenuIntel", "Intel conseguida");
         this.Text("GR-MenuIntelLocated", "Guarida localizada");
         this.Text("GR-MenuQuality", "Calidad");

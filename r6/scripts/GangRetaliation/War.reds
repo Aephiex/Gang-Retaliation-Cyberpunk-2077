@@ -1,20 +1,12 @@
-// Gang Retaliation - fase 8: guerras de bandas
-//
-// - Lista de distritos del juego con sus bandas originales (TweakDB), para que CET arme el territorio.
-// - Escaramuzas: dos grupos de bandas en guerra se tirotean cerca de V. Van aparte de las emboscadas
-//   (otra etiqueta de DynamicEntitySystem) para no mezclarse con su limpieza.
-// La simulacion (influencia, guerras, quien gana) vive en CET: modules/war.lua.
 
 module GangRetaliation
 
 public class GRWar extends ScriptableSystem {
     private let m_entityIDs: array<EntityID>;
-    // 0 = bando A, 1 = bando B (paralelo a m_entityIDs).
     private let m_sides: array<Int32>;
     private let m_active: Bool;
     private let m_start: Float;
     private let m_fightSeen: Bool;
-    // Por que fallo el ultimo Start (para la ventana de debug).
     private let m_lastError: String;
 
     public func GRProfState() -> String {
@@ -37,17 +29,11 @@ public class GRWar extends ScriptableSystem {
         return EngineTime.ToFloat(GameInstance.GetSimTime(this.GetGameInstance()));
     }
 
-    // -------------------------------------------------------------------------
-    // Distritos
-    // -------------------------------------------------------------------------
     private func DistrictLabel(district: wref<District_Record>) -> String {
         let name: String = GetLocalizedText(district.LocalizedName());
         return StrLen(name) > 0 ? name : district.EnumName();
     }
 
-    // "Clave|Nombre|Zona|BandaA,BandaB;..." con los barrios del juego (Kabuki, Little China...).
-    // En TweakDB las bandas estan en la zona (Watson, Heywood...): cada barrio hereda las de su zona.
-    // Zona sin barrios (Dogtown): cuenta como barrio.
     public func GetAllDistricts() -> String {
         let records: array<ref<TweakDBRecord>> = TweakDBInterface.GetRecords(n"District");
         let parents: array<TweakDBID>;
@@ -68,7 +54,6 @@ public class GRWar extends ScriptableSystem {
                     depth += 1;
                 }
                 let isNeighborhood: Bool = depth == 1 || (depth == 0 && !ArrayContains(parents, district.GetID()));
-                // Bandas propias o, si no tiene, las del primer distrito de arriba que tenga.
                 let source: wref<District_Record> = district;
                 while IsDefined(source) && source.GetGangsCount() == 0 {
                     source = source.ParentDistrict();
@@ -88,8 +73,6 @@ public class GRWar extends ScriptableSystem {
         return result;
     }
 
-    // Barrio en el que esta V (el mismo nivel que GetAllDistricts: hijo directo de una zona,
-    // o la zona si no tiene barrios).
     public func GetCurrentDistrict() -> String {
         let player: ref<PlayerPuppet> = GetPlayer(this.GetGameInstance());
         if !IsDefined(player) {
@@ -99,16 +82,12 @@ public class GRWar extends ScriptableSystem {
         if !IsDefined(district) {
             return "";
         }
-        // Sube hasta quedar justo debajo de la zona.
         while IsDefined(district.ParentDistrict()) && IsDefined(district.ParentDistrict().ParentDistrict()) {
             district = district.ParentDistrict();
         }
         return district.EnumName();
     }
 
-    // -------------------------------------------------------------------------
-    // Escaramuzas
-    // -------------------------------------------------------------------------
     public func IsActive() -> Bool {
         return this.m_active;
     }
@@ -141,7 +120,6 @@ public class GRWar extends ScriptableSystem {
         if IsDefined(spawner) && spawner.IsInScene() {
             return "scene (no weapons)";
         }
-        // Los mismos dos bloqueos que las emboscadas (GRSpawner.GetAmbushBlocker).
         if IsDefined(spawner) && spawner.IsPlayerSwimming() {
             return "underwater";
         }
@@ -154,8 +132,6 @@ public class GRWar extends ScriptableSystem {
         return "";
     }
 
-    // Punto de suelo a pie a la altura de V (sin azoteas ni sotanos). Se busca desde 2 m por encima
-    // para encontrar el suelo aunque suba un poco respecto a V.
     private func GroundNear(player: ref<PlayerPuppet>, raw: Vector4) -> Vector4 {
         let pos: Vector4 = GameInstance.GetNavigationSystem(this.GetGameInstance()).GetNearestNavmeshPointBelowOnlyHumanNavmesh(raw + new Vector4(0.0, 0.0, 2.0, 0.0), 2.0, 6);
         if Vector4.IsZero(pos) || AbsF(pos.Z - player.GetWorldPosition().Z) > 6.0 {
@@ -164,8 +140,6 @@ public class GRWar extends ScriptableSystem {
         return pos;
     }
 
-    // Dos grupos enfrentados a unos 40 m de V, delante o a los lados, separados unos 18 m.
-    // recordsA / recordsB: recordIDs separados por comas. Devuelve false si no hay sitio.
     public func GetLastError() -> String {
         return this.m_lastError;
     }
@@ -180,8 +154,6 @@ public class GRWar extends ScriptableSystem {
             this.m_lastError = "no spawner";
             return false;
         }
-        // Dos puntos alcanzables a pie desde V (como las emboscadas), a unos 30 m y separados
-        // por unos 25 grados: cada bando en uno. Se prueban varias direcciones.
         let angles: array<Float> = [0.0, 60.0, -60.0, 120.0, -120.0, 180.0];
         for angle in angles {
             let posA: Vector4 = spawner.FindWarSpot(angle - 13.0, 30.0);
@@ -211,7 +183,6 @@ public class GRWar extends ScriptableSystem {
             let spec: ref<DynamicEntitySpec> = new DynamicEntitySpec();
             spec.recordID = TDBID.Create(list[i]);
             spec.appearanceName = n"random";
-            // En fila, separados 2,5 m.
             spec.position = at + new Vector4(RandRangeF(-2.5, 2.5) + Cast<Float>(i) * 0.8, RandRangeF(-2.5, 2.5), 0.0, 0.0);
             spec.orientation = EulerAngles.ToQuat(Vector4.ToRotation(facing - at));
             spec.persistState = false;
@@ -226,7 +197,6 @@ public class GRWar extends ScriptableSystem {
         }
     }
 
-    // Al aparecer, cada pandillero se vuelve hostil con los del otro bando ya presentes (y ellos con el).
     private cb func OnEntityEvent(event: ref<DynamicEntityEvent>) {
         let index: Int32 = -1;
         let i: Int32 = 0;
@@ -268,7 +238,6 @@ public class GRWar extends ScriptableSystem {
         }
     }
 
-    // Vivos de un bando (los que no se ven cuentan como vivos).
     private func Alive(side: Int32) -> Int32 {
         let count: Int32 = 0;
         let i: Int32 = 0;
@@ -284,7 +253,6 @@ public class GRWar extends ScriptableSystem {
         return count;
     }
 
-    // Lo llama CET cada segundo: limpia al acabar (un bando sin nadie, V lejos o 3 minutos).
     public func Tick() {
         if !this.m_active {
             return;
@@ -301,7 +269,6 @@ public class GRWar extends ScriptableSystem {
         }
     }
 
-    // Fin normal: los sobrantes del spawner se van y se borran cuando V no los ve (no de golpe a la vista).
     private func Release() {
         let spawner: ref<GRSpawner> = GRSpawner.Get(this.GetGameInstance());
         if !IsDefined(spawner) {

@@ -8,7 +8,7 @@ local Escorts = require("modules/escorts")
 local Vehicles = require("modules/vehicles")
 
 local GR = {
-    dev = true, -- GR_DEV_FLAG
+    dev = false,
     overlayOpen = false,
     campaignId = 0,
     sessionToken = 0,
@@ -203,7 +203,6 @@ local function processPending()
     det:ClearPending()
 end
 
--- Arma de Jefe (GRRewards): una vez por Jefe, salvo force (boton de desarrollo). Devuelve el nombre del arma o "".
 local function giveBossWeapon(n, force)
     local rewards = getSystem("GangRetaliation.GRRewards")
     if not rewards or not n.gang then return "" end
@@ -214,13 +213,11 @@ local function giveBossWeapon(n, force)
     return weapon or ""
 end
 
--- Los nombres de las armas de Jefe no se guardan en la partida: GRRewards los arma con el nombre del Jefe.
 local function pushRewardNames()
     local rewards = getSystem("GangRetaliation.GRRewards")
     if not rewards then return end
     rewards:ClearNames()
     for _, n in ipairs(Store.campaign(GR.campaignId).nemeses) do
-        -- HasGiven: un Jefe que volvio de la muerte puede haber bajado de rango y su arma sigue con V.
         if (n.rank or 1) >= Hierarchy.BOSS or rewards:HasGiven(n.id) then rewards:AddName(n.id, Names.display(n, lang())) end
     end
 end
@@ -287,7 +284,6 @@ local function launchAmbush(n, forceVehicle)
     local line = text(Ambush.lineKey(n), "...")
     local escorts = Ambush.escorts(n, settings.ambushMaxEscorts)
     pushTraits(n)
-    -- A veces llegan en un vehiculo de la banda; si no hay sitio para el coche, a pie.
     local useVehicle = forceVehicle or math.random(100) <= Vehicles.chancePercent
     local vehicle = useVehicle and Vehicles.pick(n.gang) or nil
     local started = vehicle and spawner:StartVehicleAmbush(n.id, n.recordID, n.appearance or "", escorts, line, speaker, vehicle)
@@ -321,7 +317,6 @@ local function tryAmbush(force, warnSeconds, forceVehicle)
     if not force then
         local waited = os.time() - (campaign.lastAmbush or 0)
         if waited < settings.ambushCooldownMinutes * 60 then return "cooldown" end
-        -- Rencor de They Will Remember y rango de Drug Dealer: x1.0 a x2.0.
         local heat = spawner:GetHeatFactor()
         if math.random(100) > settings.ambushChancePercent * heat then return "roll failed" end
         local safe, distance = Ambush.nearHome(campaign)
@@ -334,7 +329,6 @@ local function tryAmbush(force, warnSeconds, forceVehicle)
     local warSys = getSystem("GangRetaliation.GRWar")
     local districtGangs = (warSys and War.districtGangs(campaign, warSys:GetCurrentDistrict()))
         or Ambush.parseGangs(spawner:GetDistrictGangs())
-    -- Los que acaban de escapar esperan (Ambush.escapeRestDays); una emboscada forzada no espera.
     local today = gameDay()
     local n, resting = Ambush.pick(campaign.nemeses, districtGangs, not force, not force and today or nil, true)
     for _, r in ipairs(resting) do
@@ -379,12 +373,10 @@ local function updatePendingAmbush()
         GR.pendingAmbush = nil
         debugLog("Emboscada anunciada cancelada: " .. blocker)
     else
-        -- V bajo techo o sin sitio: reintentar cada 5 s hasta que salga a la calle.
         pending.due = now + 5
     end
 end
 
--- Noches dormidas en una cama propia (GRHomes): 2 noches en el mismo sitio lo vuelven casa, sin aviso.
 local function updateHomes()
     local homes = getSystem("GangRetaliation.GRHomes")
     if not homes or GR.campaignId == 0 then return end
@@ -459,9 +451,6 @@ local function tryGig(force)
     return force and "no Nemesis for this fight" or nil
 end
 
--- Integraciones: un escuadron de venganza de They Will Remember o una mision de Drug Dealer contra una
--- banda con Nemesis vivo. Se tira una vez por escuadron (misma probabilidad que los gigs), cuando V ya
--- pelea; si el escuadron desaparece, se olvida y el proximo vuelve a tirar.
 local function tryExternalSquad()
     local settings = getSettings()
     local spawner = getSpawner()
@@ -518,8 +507,6 @@ end
 local function checkEncounter()
     local spawner = getSpawner()
     if not GR.encounterId or not spawner or spawner:IsAmbushActive() then return end
-    -- Al terminar la emboscada todavia puede estar yendose (sobrante): V aun puede matarlo.
-    -- Sobrevive recien cuando se borra fuera de la vista. processDeaths corre antes que esto.
     if spawner:IsNemesisSpawned(GR.encounterId) then return end
     local n = findNemesis(GR.encounterId)
     GR.encounterId = nil
@@ -670,8 +657,6 @@ local function tryRaid(force)
     local warSys = getSystem("GangRetaliation.GRWar")
     local districtGangs = (warSys and War.districtGangs(campaign, warSys:GetCurrentDistrict()))
         or Ambush.parseGangs(spawner:GetDistrictGangs())
-    -- En Dogtown la redada es de Barghest (GRSpawner.GetRaidForce) y va contra forasteros: solo Nemesis
-    -- de otras bandas. Si no hay ninguno, no hay redada.
     local raidForce = spawner:GetRaidForce()
     local pool = campaign.nemeses
     if raidForce == "Barghest" then
@@ -705,7 +690,6 @@ local function checkRaid()
     if not GR.raidId or not spawner or spawner:IsRaidActive() then return end
     local n = findNemesis(GR.raidId)
     GR.raidId = nil
-    -- Barghest no paga recompensa por ayudar en su redada.
     local barghest = GR.raidForce == "Barghest"
     GR.raidForce = nil
     local outcome = spawner:TakeRaidOutcome()
@@ -736,16 +720,11 @@ local function checkRaid()
     end
 end
 
--- Guaridas (una fija por banda; los sitios estan en GRStronghold): Lua solo pasa quien vive en cada una;
--- mapa, aparecer y desaparecer van en redscript. Viven ahi todos los Nemesis vivos de la banda (Jefe
--- primero). Entre 10 y 20 en total: cada Teniente vivo suma 3 guardias, asi que matarlos antes debilita
--- la guarida del Jefe.
 local STRONGHOLD_MAX = 20
 local function pushStronghold()
     local sys = getSystem("GangRetaliation.GRStronghold")
     if not sys then return end
     local campaign = Store.campaign(GR.campaignId)
-    -- Modelo viejo (una guarida puesta a mano por campana): ya no se usa.
     if campaign.stronghold then
         campaign.stronghold = nil
         Store.dirty = true
@@ -760,7 +739,6 @@ local function pushStronghold()
     end
     sys:ClearMembers()
     for gang, members in pairs(byGang) do
-        -- Sin guarida: bandas fuera de las 9, o Barghest sin Phantom Liberty.
         if sys:HasSite(gang) then
             table.sort(members, function(a, b)
                 if (a.rank or 1) ~= (b.rank or 1) then return (a.rank or 1) > (b.rank or 1) end
@@ -780,14 +758,12 @@ local function pushStronghold()
     end
 end
 
--- Eventos de GRStronghold con la banda: "spawned:Animals", "cleared:Animals", "left:Animals".
 local function strongholdEvents()
     local sys = getSystem("GangRetaliation.GRStronghold")
     if not sys then return end
     local ev = sys:TakeEvent()
     while ev ~= "" do
         local kind, gang = string.match(ev, "^(%a+):(.+)$")
-        -- Llegar a la guarida no se avisa (discreto): V la descubre al ver a los guardias.
         if kind == "cleared" then
             notify(string.format(text("GR-MsgStrongholdCleared", "The %s stronghold has fallen."), Names.gangLabel(gang)))
         end
@@ -795,12 +771,10 @@ local function strongholdEvents()
     end
 end
 
--- Dev: las 9 bandas con guarida, para el combo del panel de sitios.
 local SITE_GANGS = {}
 for gang in pairs(Names.gangLabels) do table.insert(SITE_GANGS, gang) end
 table.sort(SITE_GANGS)
 
--- Dev: barrio de V y bandas de ese barrio para el panel de sitios (como mucho una consulta por segundo).
 local function siteContext(campaign)
     local now = os.clock()
     if GR.siteCtx and now - GR.siteCtx.t < 1 then return GR.siteCtx end
@@ -954,7 +928,6 @@ local function pushMenu()
         local title = (l == "es") and n.titleEs or n.titleEn
 
         local escapes = (n.escapes or 0) + ((n.origin == "escaped" or n.origin == "fled") and 1 or 0)
-        -- Maximo 8 argumentos por llamada a redscript: con mas, el juego crashea al cargar.
         sys:Add(n.gang, Names.gangLabel(n.gang), n.rank or 1, n.status == "dead", n.name or "?", title or "",
             Ambush.hasMetV(n), n.renown or 0)
         sys:AddDetail(menuTraits(n), renownHint(n), text("GR-Origin-" .. (n.origin or "escaped"), n.origin or ""), cause)
@@ -995,8 +968,6 @@ local function processReveals()
     sys:ClearReveals()
 end
 
--- Hasta 1.3.x un drone o un mech podia volverse Nemesis. Al cargar la partida se borran de la lista (como
--- el Jackie de Store.load): sin muerte, sin castigo a la banda y sin merito para V.
 local function purgeMachines()
     local spawner = getSpawner()
     local nemeses = Store.campaign(GR.campaignId).nemeses
@@ -1023,8 +994,6 @@ local function refreshCampaign()
         return
     end
 
-    -- El id lo genera solo redscript (OnRestored / OnPlayerAttach). Si aun es 0, esperar:
-    -- generarlo aca durante la carga le ganaba al id guardado y creaba una campana nueva.
     local id = sys:GetCampaignId()
     if id == 0 then GR.campaignId = 0 return end
     local token = sys:GetSessionToken()
@@ -1034,12 +1003,10 @@ local function refreshCampaign()
         GR.pendingAmbush = nil
         GR.gigRolled = {}
         GR.encounterId = nil
-        -- Sesion nueva = GRStronghold nuevo y vacio: volver a pasarle los miembros.
         GR.strongholdVersion = nil
         GR.rewardsVersion = nil
         debugLog("Campana activa: " .. tostring(id))
 
-        -- En la pantalla de carga el juego aun no esta listo: no tocar nada hasta que pase.
         GR.warmup = 15
 
         GR.hierarchyNow = true
@@ -1057,8 +1024,6 @@ registerForEvent("onShutdown", function()
     if Store.dirty then Store.save() end
 end)
 
--- Dev: medidor por seccion. os.clock tiene ~1 ms de resolucion en Windows: sirve para promedios de
--- muchas llamadas y para ver picos, no para una llamada sola. Las llamadas a redscript cuentan dentro.
 GR.prof = { cur = {}, last = {}, window = 0, counts = "", state = "" }
 local function profAdd(sections, name, ms)
     local s = sections[name]
@@ -1080,7 +1045,6 @@ local function prof(name, fn, ...)
 end
 
 local function update(delta)
-    -- Cada llamada a redscript cuesta: todo el sondeo va en un tick de 1 s, no en cada frame.
     GR.fleeTimer = (GR.fleeTimer or 0) + delta
     local tick = GR.fleeTimer >= 1
     if tick then
@@ -1094,7 +1058,6 @@ local function update(delta)
     end
     if GR.hierarchyNow then
         GR.hierarchyNow = false
-        -- Una vez por partida cargada, ya pasada la pantalla de carga y antes de cubrir vacantes.
         local okP, errP = pcall(purgeMachines)
         if not okP then print("[GangRetaliation] Error al borrar Nemesis-maquina: " .. tostring(errP)) end
         local ok, err = prof("updateHierarchy", pcall, updateHierarchy)
@@ -1134,8 +1097,6 @@ local function update(delta)
         prof("strongholdEvents", pcall, strongholdEvents)
         prof("updatePendingAmbush", pcall, updatePendingAmbush)
         prof("updateHomes", pcall, updateHomes)
-        -- El menu solo se reconstruye si cambiaron los datos (o la campana). Cada 30 s igual,
-        -- por los textos que dependen del dia de juego o del idioma.
         GR.menuTimer = (GR.menuTimer or 0) + 1
         if Store.version ~= GR.menuVersion or GR.campaignId ~= GR.menuCampaign or GR.menuTimer >= 30 then
             GR.menuTimer = 0
@@ -1151,7 +1112,6 @@ local function update(delta)
     end
 
     GR.ambushTimer = (GR.ambushTimer or 0) + delta
-    -- Solo en el frame del tick, justo despues de refreshCampaign (por si cambio la partida).
     if tick and GR.ambushTimer >= 60 then
         GR.ambushTimer = 0
         local ok, result = prof("tryAmbush", pcall, tryAmbush, false)
@@ -1175,10 +1135,7 @@ local function update(delta)
     end
 end
 
--- Dev: cuanto tarda onUpdate (promedio y pico por segundo), para medir el rendimiento.
 GR.perf = { sum = 0, frames = 0, peak = 0, time = 0, avgMs = 0, peakMs = 0 }
--- Dev: vuelo con noclip para recorrer la ciudad buscando sitios. V se teletransporta cada frame hacia donde
--- mira la camara (atraviesa paredes y no cae) y es invulnerable hasta 10 s despues de apagarlo.
 GR.fly = { on = false, f = 0, b = 0, l = 0, r = 0, up = 0, down = 0, fast = false, godUntil = 0 }
 
 local function setFlyGod(on)
@@ -1245,7 +1202,6 @@ if GR.dev then
     registerHotkey("gr_fly_toggle", "Fly: on/off", function() pcall(toggleFly) end)
 end
 
--- Dev: FPS del juego (con el delta de cada frame) y benchmark que apaga partes del mod para comparar.
 GR.fps = { frames = 0, time = 0, worst = 0, value = 0, worstMs = 0 }
 local BENCH_PHASES = {
     { name = "all on" },
@@ -1309,7 +1265,6 @@ end
 
 local function benchStep(delta)
     local b = GR.bench
-    -- Con la ventana de CET abierta los FPS no valen: se espera a que se cierre y la fase arranca de nuevo.
     if GR.overlayOpen then
         b.t, b.measuring = 0, false
         GR.benchStatus = "Benchmark: close the CET overlay to start. Stand still, do not move the camera."
@@ -1389,7 +1344,6 @@ registerForEvent("onUpdate", function(delta)
         end
     end
 
-    -- Ventana de 10 s para el panel (el benchmark usa sus propios contadores).
     local pf = GR.prof
     pf.window = pf.window + delta
     if pf.window >= 10 then
@@ -1549,7 +1503,6 @@ registerForEvent("onDraw", function()
             if det4 then
                 local mode = det4:GetFleeMode()
                 ImGui.Text("Flee mode:")
-                -- D-G: experimentos con sistemas del juego (ver ApplyFleeMode en Detection.reds).
                 local modes = { { 0, "A: run" }, { 1, "B: fear" }, { 2, "C: both" }, { 3, "D: wipe+run" },
                     { 4, "E: wipe+fear+run" }, { 5, "F: retreat" }, { 6, "G: terror+run" }, { 7, "H: native flee" } }
                 for i, opt in ipairs(modes) do
@@ -1661,7 +1614,6 @@ registerForEvent("onDraw", function()
             local campaign = Store.ensureCampaign(GR.campaignId)
             local gangs = SITE_GANGS
             local ctx = siteContext(campaign)
-            -- Al cambiar de barrio se elige sola la primera banda del barrio (se puede cambiar a mano).
             if ctx.district ~= GR.siteDistrict then
                 GR.siteDistrict = ctx.district
                 for i, gang in ipairs(gangs) do
@@ -1674,7 +1626,6 @@ registerForEvent("onDraw", function()
                 GR.siteGang = math.min(GR.siteGang or 1, #gangs)
                 GR.siteGang = ImGui.Combo("##sitegang", GR.siteGang - 1, gangs, #gangs) + 1
             end
-            -- Sitios candidatos para las guaridas fijas: se recorren a mano y despues se pasan al codigo.
             local inDistrict = false
             for _, gang in ipairs(ctx.gangs) do
                 if gang == gangs[GR.siteGang or 1] then inDistrict = true end
@@ -1708,7 +1659,6 @@ registerForEvent("onDraw", function()
                 Store.saveSites(list)
                 GR.lastAction = removed and string.format("borrado %s (%s), quedan %d", removed.gang, removed.district, #list) or "no hay sitios"
             end
-            -- Guaridas fijas (GRStronghold): la mas cercana, y teleport a la de la banda del combo.
             local shSys = getSystem("GangRetaliation.GRStronghold")
             if shSys then
                 if not GR.shInfoAt or os.clock() - GR.shInfoAt > 1 then
@@ -1728,7 +1678,6 @@ registerForEvent("onDraw", function()
             ImGui.SameLine()
             ImGui.TextDisabled("keys: CET > Bindings > Gang Retaliation (Fly: ...)")
             ImGui.Separator()
-            -- Drug Dealer (la logica esta en GRSpawner.DebugDD / GRIntegrations)
             local ddSpawner = getSpawner()
             if ddSpawner then
                 if not GR.ddInfoAt or os.clock() - GR.ddInfoAt > 1 then

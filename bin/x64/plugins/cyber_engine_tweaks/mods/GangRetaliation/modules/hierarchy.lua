@@ -1,13 +1,3 @@
--- Gang Retaliation - fase 5: jerarquia de cada banda (Soldado -> Teniente -> Jefe)
---
--- Cada banda tiene 1 Jefe, 2 Tenientes y el resto Soldados. Una campana nueva empieza con
--- Jefe y Tenientes ya puestos en cada banda (seed). Los Nemesis ganan renombre
--- (escaparse, sobrevivir a emboscadas) y suben de rango:
---   - Ascenso rapido: hay hueco arriba y tiene renombre de sobra.
---   - Vacante: tras unos dias de juego sube el de mas renombre del rango inferior o,
---     si no hay nadie, aparece un Nemesis nuevo directamente en ese rango.
---   - Luchas internas: de vez en cuando alguien desafia a su superior.
--- Todo es logica pura: init.lua le pasa un contexto (ctx) con el dia de juego, ajustes y avisos.
 
 local Traits = require("modules/traits")
 local Names = require("modules/names")
@@ -17,9 +7,7 @@ local CyberLooks = require("modules/cyberlooks")
 local Hierarchy = {}
 
 Hierarchy.SOLDIER, Hierarchy.LIEUTENANT, Hierarchy.BOSS = 1, 2, 3
--- Plazas por rango (los soldados llenan el resto hasta el maximo por banda).
 Hierarchy.cap = { [2] = 2, [3] = 1 }
--- Renombre para el ascenso rapido al rango indicado.
 Hierarchy.fastRenown = { [2] = 4, [3] = 8 }
 
 local function alive(n)
@@ -36,7 +24,6 @@ function Hierarchy.members(campaign, gang, rank)
     return list
 end
 
--- Bandas con al menos un Nemesis vivo.
 function Hierarchy.activeGangs(campaign)
     local gangs, seen = {}, {}
     for _, n in ipairs(campaign.nemeses) do
@@ -49,7 +36,6 @@ function Hierarchy.activeGangs(campaign)
     return gangs
 end
 
--- Bandas con jerarquia: las que tienen tipos de NPC para reclutar y las que ya tienen Nemesis.
 function Hierarchy.knownGangs(campaign)
     local gangs, seen = {}, {}
     for gang in pairs(Escorts) do
@@ -77,7 +63,6 @@ local function gangState(campaign, gang)
     return state
 end
 
--- El de mas renombre (empate: al azar). skip(n) = true para descartar.
 local function best(list, ctx, skip)
     local top, topScore = nil, -1
     for _, n in ipairs(list) do
@@ -93,7 +78,6 @@ function Hierarchy.addRenown(n, amount)
     n.renown = (n.renown or 0) + amount
 end
 
--- Sube un rango. El nuevo rango trae una fortaleza; el Jefe es siempre "duro" si puede.
 function Hierarchy.promote(n, ctx)
     n.rank = math.min(3, (n.rank or 1) + 1)
     n.promotedDay = ctx.day
@@ -104,8 +88,6 @@ function Hierarchy.promote(n, ctx)
     end
 end
 
--- Recluta un Nemesis nuevo directamente en un rango (vacante sin candidatos o campana nueva).
--- Necesita un tipo de NPC de la banda: la lista de escoltas o, si no hay, uno de sus Nemesis.
 local function recruit(campaign, gang, rank, ctx, origin)
     local recordID
     local list = Escorts[gang]
@@ -117,7 +99,6 @@ local function recruit(campaign, gang, rank, ctx, origin)
     end
     if not recordID then return nil end
 
-    -- Los registros de mujer acaban en _wa/_wb/_fa...
     local gender = (string.match(recordID, "_[wf][a-z]$") and "Female") or "Male"
     local taken = {}
     for _, other in ipairs(campaign.nemeses) do
@@ -135,9 +116,6 @@ local function recruit(campaign, gang, rank, ctx, origin)
     return n
 end
 
--- Campana nueva: cada banda empieza con su Jefe y sus Tenientes, sin avisos.
--- Solo una vez por campana; despues los puestos se mueven con ascensos, vacantes y luchas.
--- Devuelve true si ha reclutado a alguien.
 function Hierarchy.seed(campaign, ctx)
     if campaign.seeded then return false end
     campaign.seeded = true
@@ -156,7 +134,6 @@ function Hierarchy.seed(campaign, ctx)
     return added
 end
 
--- Ocupa los huecos de Teniente y Jefe de una banda.
 local function fillRanks(campaign, gang, ctx)
     local state = gangState(campaign, gang)
     local settings = ctx.settings
@@ -169,7 +146,6 @@ local function fillRanks(campaign, gang, ctx)
             state.vacant[key] = state.vacant[key] or ctx.day
             local waited = ctx.day - state.vacant[key]
             local below = Hierarchy.members(campaign, gang, rank - 1)
-            -- Ascenso rapido: renombre de sobra, sin esperar.
             local candidate = best(below, ctx, function(n) return (n.renown or 0) < Hierarchy.fastRenown[rank] end)
             local reason = "fast"
             if not candidate and waited >= settings.vacancyDays then
@@ -190,7 +166,6 @@ local function fillRanks(campaign, gang, ctx)
     end
 end
 
--- Lucha interna: alguien de rango inferior desafia a un superior.
 local function feud(campaign, gang, ctx)
     local state = gangState(campaign, gang)
     local today = math.floor(ctx.day)
@@ -198,7 +173,6 @@ local function feud(campaign, gang, ctx)
     state.lastFeudDay = today
     if ctx.random() * 100 >= ctx.settings.feudChancePercent then return end
 
-    -- Desafia el subordinado con mas renombre que tenga a alguien por encima.
     local challenger, target
     for rank = 2, 1, -1 do
         local above = Hierarchy.members(campaign, gang, rank + 1)
@@ -215,7 +189,6 @@ local function feud(campaign, gang, ctx)
 
     local killed = ctx.random() < 0.5
     if winner == challenger then
-        -- El retador ocupa el puesto; el superior muere o baja al hueco del retador.
         local targetRank = loser.rank or 1
         if killed then
             loser.status = "dead"
@@ -282,8 +255,6 @@ local function processReleases(campaign, ctx)
     end
 end
 
--- Fase 7: muerte de un Nemesis. kind = "confirmed" (remate: cabeza, explosion, desmembrado),
--- "knockout" (inconsciente) o "normal". Decide si volvera y cuando. Devuelve true si volvera.
 function Hierarchy.resolveDeath(n, kind, ctx)
     n.returnDay = nil
     if kind == "confirmed" then
@@ -292,13 +263,10 @@ function Hierarchy.resolveDeath(n, kind, ctx)
     end
     local chance = kind == "knockout" and 100 or (ctx.settings.returnChancePercent or 40)
     if ctx.random() * 100 >= chance then return false end
-    -- Entre 2 y 4 dias de juego en el matasanos.
     n.returnDay = ctx.day + 2 + ctx.random() * 2
     return true
 end
 
--- Vuelve reconstruido con cyberware: titulo nuevo, +3 de renombre, una fortaleza de implantes y su
--- punto debil (hackeos o electricidad), otro aspecto. Si su puesto esta ocupado, baja de rango.
 function Hierarchy.revive(campaign, n, ctx)
     n.status = "alive"
     n.returnDay = nil
@@ -321,7 +289,6 @@ function Hierarchy.revive(campaign, n, ctx)
     n.rank = rank
 end
 
--- Los que tocaba que volvieran hoy. Devuelve la lista de los que han vuelto.
 local function processReturns(campaign, ctx)
     local back = {}
     for _, n in ipairs(campaign.nemeses) do
@@ -335,7 +302,6 @@ local function processReturns(campaign, ctx)
     return back
 end
 
--- Corrige datos viejos o imposibles: mas Jefes o Tenientes de los que caben.
 local function enforceCaps(campaign, gang, ctx)
     for rank = 3, 2, -1 do
         local members = Hierarchy.members(campaign, gang, rank)
@@ -346,13 +312,9 @@ local function enforceCaps(campaign, gang, ctx)
     end
 end
 
--- Paso periodico (init.lua lo llama una vez por minuto).
--- ctx = { day, settings = { vacancyDays, feudChancePercent }, random(), isSpawned(id),
---         addNemesis(data), event(kind, a, b, reason) }
 function Hierarchy.update(campaign, ctx)
     processReturns(campaign, ctx)
     processReleases(campaign, ctx)
-    -- Tambien las bandas sin nadie vivo: si V acaba con todos, la cupula se rehace con reclutas.
     for _, gang in ipairs(Hierarchy.knownGangs(campaign)) do
         enforceCaps(campaign, gang, ctx)
         fillRanks(campaign, gang, ctx)
@@ -361,7 +323,6 @@ function Hierarchy.update(campaign, ctx)
     end
 end
 
--- V ha matado a un Nemesis: si era Jefe o Teniente, su puesto queda libre desde hoy.
 function Hierarchy.onDeath(campaign, n, day)
     if (n.rank or 1) > 1 and n.gang then
         local state = gangState(campaign, n.gang)

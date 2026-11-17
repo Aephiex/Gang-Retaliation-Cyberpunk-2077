@@ -2,11 +2,7 @@ module GangRetaliation
 
 import Codeware.UI.VirtualResolutionWatcher
 
-// HUD de combate: barra del enemigo mas grande con la linea de huida, y panel AMENAZAS con los hostiles
-// que tienen a V como objetivo. No toca healthbarWidgetGameController (vida de V; Cyberware-EX y Dark
-// Future lo modifican).
 
-// --- Barra sobre la cabeza del enemigo (npcnameplate.inkwidget: healthBar > wrapper > bg_black 150x7) ---
 
 @addField(NameplateBarLogicController)
 private let m_grFleeMark: wref<inkRectangle>;
@@ -77,7 +73,6 @@ private func GRUpdateNameplate(npc: ref<ScriptedPuppet>) {
     let scale: Float = ClampF(settings.nameplateScale, 1.0, 2.0);
     inkWidgetRef.SetScale(this.m_healthbarWidget, new Vector2(scale, scale));
 
-    // SetVisualData llega muy seguido: el bloqueo de huida se recalcula al cambiar de NPC o cada 0.5 s.
     let now: Float = EngineTime.ToFloat(GameInstance.GetSimTime(gi));
     if npc.GetEntityID() != this.m_grCheckedID || now - this.m_grCheckedAt > 0.5 {
         let det: ref<GRDetection> = GRDetection.Get(gi);
@@ -90,7 +85,6 @@ private func GRUpdateNameplate(npc: ref<ScriptedPuppet>) {
     }
 }
 
-// --- Panel AMENAZAS (capa inkHUDLayer, coordenadas de 3840x2160) ---
 
 public class GRThreatRow {
     public let root: ref<inkVerticalPanel>;
@@ -121,9 +115,6 @@ public class GRHudTick extends DelayCallback {
     }
 }
 
-// Modo dios de debug: el GodModeSystem registra la entrada GRDebug pero HasGodMode da false para V (algo lo
-// anula), asi que el dano no la respeta. Se corta el golpe aca, en el mismo punto donde el juego marca a los
-// invulnerables.
 @wrapMethod(DamageSystem)
 private final func InvulnerabilityCheck(hitEvent: ref<gameHitEvent>, cache: ref<CacheData>) -> Void {
     wrappedMethod(hitEvent, cache);
@@ -145,7 +136,6 @@ public class GRHud extends ScriptableSystem {
     private let m_panel: ref<inkVerticalPanel>;
     private let m_watcher: ref<VirtualResolutionWatcher>;
     private let m_header: ref<inkHorizontalPanel>;
-    // Medidas guardadas la primera vez que se obtienen: oculto, GetDesiredSize da 0.
     private let m_headerH: Float;
     private let m_rowH: Float;
     private let m_moreH: Float;
@@ -158,7 +148,6 @@ public class GRHud extends ScriptableSystem {
     private let m_debugInfo: String;
     private let m_godAdd: String;
 
-    // Filas creadas; cuantas se muestran lo decide threatPanelRows (Mod Settings).
     private let c_maxRows: Int32 = 10;
     private let c_barWidth: Float = 380.0;
     private let c_padX: Float = 24.0;
@@ -204,12 +193,10 @@ public class GRHud extends ScriptableSystem {
     }
 
     private func OnPlayerAttach(request: ref<PlayerAttachRequest>) {
-        // Al cargar otra partida el HUD se rehace: se vuelve a crear el panel y se corta el tick anterior.
         this.m_session += 1;
         this.m_box = null;
         this.m_panel = null;
         ArrayClear(this.m_rows);
-        // Rueda de armas (y otros menus radiales): el panel se oculta al instante mientras este abierta.
         let quickSlots: ref<IBlackboard> = GameInstance.GetBlackboardSystem(this.GetGameInstance()).Get(GetAllBlackboardDefs().UI_QuickSlotsData);
         if IsDefined(quickSlots) && !IsDefined(this.m_radialListener) {
             this.m_radialListener = quickSlots.RegisterListenerBool(GetAllBlackboardDefs().UI_QuickSlotsData.UIRadialContextRequest, this, n"OnRadialContextChange");
@@ -231,7 +218,6 @@ public class GRHud extends ScriptableSystem {
     private func ScheduleTick() {
         let tick: ref<GRHudTick> = new GRHudTick();
         tick.hud = this;
-        // Con el panel a la vista, mas seguido para que las amenazas nuevas entren rapido.
         let visible: Bool = IsDefined(this.m_box) && this.m_box.IsVisible();
         GameInstance.GetDelaySystem(this.GetGameInstance()).DelayCallback(tick, visible ? 0.1 : 0.25, false);
     }
@@ -264,8 +250,6 @@ public class GRHud extends ScriptableSystem {
         return IsDefined(loc) ? loc.GetText(key) : key;
     }
 
-    // Como hace Dark Future: un slot de 3840x2160 que Codeware escala a la resolucion real, asi todo se
-    // posiciona en coordenadas 4K y se ve del mismo tamano en cualquier pantalla.
     private func EnsurePanel() -> Bool {
         if IsDefined(this.m_panel) {
             return true;
@@ -284,8 +268,6 @@ public class GRHud extends ScriptableSystem {
         this.m_watcher.Initialize(this.GetGameInstance());
         this.m_watcher.ScaleWidget(slot);
 
-        // Recuadro: canvas con el tamano del contenido, que se le pone en cada tick (PlaceBox). inkFlex no
-        // ajustaba y el contenido se montaba (mismo problema que en Menu.reds).
         let box: ref<inkCanvas> = new inkCanvas();
         box.SetName(n"gr_threats");
         box.SetAnchor(inkEAnchor.TopLeft);
@@ -335,7 +317,6 @@ public class GRHud extends ScriptableSystem {
         return true;
     }
 
-    // Posicion en coordenadas 4K (threatPanelX/Y de Mod Settings), se lee en cada tick.
     private func PlaceBox(settings: ref<GRSettings>) {
         let x: Float = settings.threatPanelX;
         let y: Float = settings.threatPanelY;
@@ -347,7 +328,6 @@ public class GRHud extends ScriptableSystem {
             + " opacity=" + FloatToStringPrec(settings.threatPanelOpacity, 2) + " rows=" + IntToString(settings.threatPanelRows);
     }
 
-    // Para el panel dev de CET: lo que el HUD esta usando de verdad en el ultimo tick visible.
     public func GetDebugInfo() -> String {
         return StrLen(this.m_debugInfo) > 0 ? this.m_debugInfo : "panel: not shown yet";
     }
@@ -357,11 +337,9 @@ public class GRHud extends ScriptableSystem {
         if !IsDefined(player) {
             return false;
         }
-        // Los dos tipos: Invulnerable corta el golpe, Immortal deja la vida en 1 si algo (otro mod) igual hace dano.
         let god: ref<GodModeSystem> = GameInstance.GetGodModeSystem(this.GetGameInstance());
         let id: EntityID = player.GetEntityID();
         if this.IsGodMode() {
-            // Borra todas las entradas GRDebug (cada AddGodMode suma una).
             god.ClearGodMode(id, n"GRDebug");
             this.m_godAdd = "cleared";
         } else {
@@ -373,7 +351,6 @@ public class GRHud extends ScriptableSystem {
         return this.IsGodMode();
     }
 
-    // Para el panel dev: fuentes de modo dios que el juego tiene registradas para V.
     public func GetGodModeInfo() -> String {
         let player: ref<PlayerPuppet> = GetPlayer(this.GetGameInstance());
         if !IsDefined(player) {
@@ -391,8 +368,6 @@ public class GRHud extends ScriptableSystem {
             + " src=[" + sources + "] on=" + ToString(this.IsGodMode()) + " | " + this.m_godAdd;
     }
 
-    // Estado real en el GodModeSystem: si alguna fuente es la nuestra. HasGodMode daba false con
-    // entradas registradas (probado en el juego), por eso se miran las fuentes.
     public func IsGodMode() -> Bool {
         let player: ref<PlayerPuppet> = GetPlayer(this.GetGameInstance());
         if !IsDefined(player) {
@@ -468,7 +443,6 @@ public class GRHud extends ScriptableSystem {
         if ArraySize(threats) > 0 {
             this.m_lastThreatAt = now;
         }
-        // Se oculta 3 s despues de que no quede nadie.
         if ArraySize(threats) == 0 && now - this.m_lastThreatAt > 3.0 {
             if IsDefined(this.m_box) {
                 this.m_box.SetVisible(false);
@@ -501,8 +475,6 @@ public class GRHud extends ScriptableSystem {
         this.FitBox(Min(shown, ArraySize(threats)), hidden > 0);
     }
 
-    // Tamano del recuadro en este mismo tick: GetDesiredSize del panel llega un frame tarde y una fila nueva
-    // quedaba fuera. Las filas miden todas lo mismo, asi que se suma con medidas de widgets ya dibujados.
     private func FitBox(rows: Int32, more: Bool) {
         let gap: Float = 12.0;
         if this.m_header.GetDesiredSize().Y > 0.0 {
@@ -518,7 +490,6 @@ public class GRHud extends ScriptableSystem {
         let rowH: Float = this.m_rowH;
         let content: Vector2 = this.m_panel.GetDesiredSize();
         if headerH <= 0.0 || rowH <= 0.0 {
-            // Primer tick visible: todavia no hay medidas, se usa lo que haya.
             if content.X > 0.0 && content.Y > 0.0 {
                 this.m_box.SetSize(new Vector2(content.X + 2.0 * this.c_padX, content.Y + 2.0 * this.c_padY));
             }
@@ -537,7 +508,6 @@ public class GRHud extends ScriptableSystem {
         row.root.SetOpacity(threat.isTarget ? 1.0 : 0.8);
         row.gang.SetTintColor(GRHud.GangColor(GRDetection.GetGang(npc)));
         row.tag.SetVisible(isNemesis);
-        // Sin Nemesis: el nombre de la banda (el juego da nombres genericos como "Habitante de NC").
         let gang: String = GRDetection.GetGang(npc);
         let label: String = StrLen(gang) > 0 ? this.T("GR-Gang-" + gang) : GetLocalizedText(npc.GetDisplayName());
         row.name.SetText(isNemesis ? threat.nemesisName : label);
@@ -550,7 +520,6 @@ public class GRHud extends ScriptableSystem {
         row.mark.SetMargin(new inkMargin(this.c_barWidth * flee / 100.0, 0.0, 0.0, 0.0));
     }
 
-    // Hostiles que tienen a V como objetivo. Orden: el que mira V, Nemesis, luego por distancia.
     private func CollectThreats(player: ref<PlayerPuppet>) -> array<ref<GRThreat>> {
         let result: array<ref<GRThreat>>;
         let gi: GameInstance = this.GetGameInstance();
@@ -596,9 +565,6 @@ public class GRHud extends ScriptableSystem {
     }
 }
 
-// --- Medidor de rendimiento (panel dev de CET) ---
-// Redscript no tiene un reloj fino, asi que aca solo se cuentan las llamadas de los hooks que corren solos
-// (sin Lua). El benchmark de CET apaga estos hooks con SetHooksOff y compara los FPS con y sin ellos.
 public class GRProfiler extends ScriptableSystem {
     public let hooksOff: Bool;
     public let nameplates: Int32;
@@ -614,7 +580,6 @@ public class GRProfiler extends ScriptableSystem {
         this.hooksOff = off;
     }
 
-    // Llamadas desde la ultima lectura, y vuelve a cero.
     public func TakeCounts() -> String {
         let s: String = "nameplates=" + IntToString(this.nameplates) + " hudTicks=" + IntToString(this.hudTicks)
             + " hits=" + IntToString(this.hits) + " vehicles=" + IntToString(this.vehicles);
@@ -625,7 +590,6 @@ public class GRProfiler extends ScriptableSystem {
         return s;
     }
 
-    // Cuantas cosas del mod hay vivas ahora (listas que se recorren en los ticks).
     public func GetState() -> String {
         let gi: GameInstance = this.GetGameInstance();
         let s: String = "";

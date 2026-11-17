@@ -1,0 +1,138 @@
+--- "a/Stronghold.reds"	2026-11-16 20:01:16.000000000 -0700
++++ "b/Stronghold.reds"	2026-11-16 22:07:29.228486000 -0700
+@@ -1410,13 +1410,14 @@
+ 
+ public class GRIntelMappinData extends MappinScriptData {
+     public let label: String;
++    public let gang: String;
+     private let m_loggedMap: Bool;
+     private let m_loggedMinimap: Bool;
+     private let m_loggedWorld: Bool;
+     private let m_loggedFilter: Bool;
+ 
+     public static func IconPart() -> CName {
+-        return n"download";
++        return n"codex_glossary";
+     }
+ 
+     public func LogFilter() -> Void {
+@@ -1497,8 +1498,10 @@
+ // world UI profile of its own: give them the one the game uses for OutpostVariant, as they had before.
+ @wrapMethod(WorldMappinsContainerController)
+ public func CreateMappinUIProfile(mappin: wref<IMappin>, mappinVariant: gamedataMappinVariant, customData: ref<MappinControllerCustomData>) -> MappinUIProfile {
+-    if Equals(mappinVariant, gamedataMappinVariant.CPO_PingDoorVariant) && IsDefined(GRStrongholdMappinData.Of(mappin)) {
+-        return wrappedMethod(mappin, gamedataMappinVariant.OutpostVariant, customData);
++    if Equals(mappinVariant, gamedataMappinVariant.CPO_PingDoorVariant) {
++        if IsDefined(GRStrongholdMappinData.Of(mappin)) || (IsDefined(mappin) && IsDefined(mappin.GetScriptData() as GRIntelMappinData)) {
++            return wrappedMethod(mappin, gamedataMappinVariant.OutpostVariant, customData);
++        }
+     }
+     return wrappedMethod(mappin, mappinVariant, customData);
+ }
+@@ -1559,7 +1562,17 @@
+     }
+     let mark: wref<GRStrongholdMappinData> = GRStrongholdMappinData.Of(Deref(data).mappin);
+     let player: wref<GameObject> = menu.GetPlayer();
+-    if !IsDefined(mark) || !IsDefined(player) {
++    if !IsDefined(player) {
++        return;
++    }
++    if !IsDefined(mark) {
++        // Knocked-out gang member with intel to extract: the game's tooltip would call it "Cyberpsycho".
++        let intel: wref<GRIntelMappinData> = Deref(data).mappin.GetScriptData() as GRIntelMappinData;
++        let intelCore: ref<GRSystem> = GRSystem.Get(player.GetGame());
++        if IsDefined(intel) && IsDefined(intelCore) {
++            inkTextRef.SetText(this.m_titleText, StrReplace(intelCore.GetText("GR-IntelMapTitle"), "{gang}", GRIntelSystem.GangLabel(intel.gang)));
++            inkTextRef.SetText(this.m_descText, intelCore.GetText("GR-IntelMapDesc"));
++        }
+         return;
+     }
+     let core: ref<GRSystem> = GRSystem.Get(player.GetGame());
+@@ -1871,16 +1884,31 @@
+         return -1;
+     }
+ 
++    // After loading a save the status effect (and the extract prompt) is still on the NPC, but the map markers are
++    // runtime-only: put the marker back for NPCs that still carry the intel state.
++    public func RestoreMark(npc: ref<ScriptedPuppet>) {
++        if !IsDefined(npc) || npc.IsDead() || !ScriptedPuppet.IsUnconscious(npc)
++            || !StatusEffectSystem.ObjectHasStatusEffect(npc, GRIntelSystem.TargetEffect()) {
++            return;
++        }
++        let gang: String = GRDetection.GetGang(npc);
++        if StrLen(gang) == 0 {
++            return;
++        }
++        this.AddMark(npc, gang, this.NemesisRank(npc));
++    }
++
+     private func AddMark(npc: ref<ScriptedPuppet>, gang: String, rank: Int32) {
+         let id: EntityID = npc.GetEntityID();
+         if this.MarkIndex(id) >= 0 {
+             return;
+         }
+         let mark: ref<GRIntelMappinData> = new GRIntelMappinData();
++        mark.gang = gang;
+         mark.label = gang + " (" + GRIntelSystem.RankName(rank) + ") " + TDBID.ToStringDEBUG(npc.GetRecordID());
+         let data: MappinData;
+-        data.mappinType = t"Mappins.DefaultStaticMappin";
+-        data.variant = gamedataMappinVariant.HuntForPsychoVariant;
++        data.mappinType = t"Mappins.GRStrongholdMappinDefinition";
++        data.variant = gamedataMappinVariant.CPO_PingDoorVariant;
+         data.active = true;
+         data.visibleThroughWalls = true;
+         data.scriptData = mark;
+@@ -2131,6 +2159,10 @@
+     }
+     let extra: array<wref<ObjectAction_Record>>;
+     if StatusEffectSystem.ObjectHasStatusEffect(owner, GRIntelSystem.TargetEffect()) {
++        let intelSystem: ref<GRIntelSystem> = GRIntelSystem.Get(owner.GetGame());
++        if IsDefined(intelSystem) {
++            intelSystem.RestoreMark(owner);
++        }
+         let extract: wref<ObjectAction_Record> = TweakDBInterface.GetObjectActionRecord(GRIntelSystem.ActionID());
+         if IsDefined(extract) {
+             ArrayPush(extra, extract);
+@@ -2141,6 +2173,18 @@
+     }
+ }
+ 
++@wrapMethod(ScriptedPuppet)
++protected cb func OnGameAttached() -> Bool {
++    let result: Bool = wrappedMethod();
++    if StatusEffectSystem.ObjectHasStatusEffect(this, GRIntelSystem.TargetEffect()) {
++        let intelSystem: ref<GRIntelSystem> = GRIntelSystem.Get(this.GetGame());
++        if IsDefined(intelSystem) {
++            intelSystem.RestoreMark(this);
++        }
++    }
++    return result;
++}
++
+ @wrapMethod(BaseScriptableAction)
+ public func CompleteAction(gameInstance: GameInstance) -> Void {
+     wrappedMethod(gameInstance);
+--- "a/Localization.reds"	2026-11-16 20:01:16.000000000 -0700
++++ "b/Localization.reds"	2026-11-16 21:52:33.495482200 -0700
+@@ -134,7 +134,9 @@
+         this.Text("GR-IntelLocated", "{gang} stronghold located");
+         this.Text("GR-StrongholdMapTitle", "Stronghold ({gang})");
+         this.Text("GR-StrongholdMapDesc", "Clear the stronghold to scatter and weaken the gang.");
+-        this.Text("GR-MapFilterStrongholds", "STRONGHOLDS");
++        this.Text("GR-IntelMapTitle", "{gang} intel target");
++        this.Text("GR-IntelMapDesc", "Knocked out. Extract their data to learn where the stronghold is.");
++        this.Text("GR-MapFilterStrongholds", "GANG RETALIATION");
+         this.Text("GR-MenuIntel", "Intel gathered");
+         this.Text("GR-MenuIntelLocated", "Stronghold located");
+         this.Text("GR-MenuQuality", "Quality");
+@@ -530,7 +532,9 @@
+         this.Text("GR-IntelLocated", "Guarida de {gang} localizada");
+         this.Text("GR-StrongholdMapTitle", "Guarida ({gang})");
+         this.Text("GR-StrongholdMapDesc", "Limpia la guarida para dispersar y debilitar a la pandilla.");
+-        this.Text("GR-MapFilterStrongholds", "GUARIDAS");
++        this.Text("GR-IntelMapTitle", "Objetivo de intel de {gang}");
++        this.Text("GR-IntelMapDesc", "Inconsciente. Extrae sus datos para saber dónde está la guarida.");
++        this.Text("GR-MapFilterStrongholds", "GANG RETALIATION");
+         this.Text("GR-MenuIntel", "Intel conseguida");
+         this.Text("GR-MenuIntelLocated", "Guarida localizada");
+         this.Text("GR-MenuQuality", "Calidad");

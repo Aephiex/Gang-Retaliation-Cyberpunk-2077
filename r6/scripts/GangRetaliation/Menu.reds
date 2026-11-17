@@ -1,17 +1,6 @@
-// Gang Retaliation - fase 6: pantalla de Nemesis en el menu del juego
-//
-// - Boton "NEMESIS" en el menu principal (el mismo boton del juego que usa Dark Future).
-// - Pantalla propia registrada en menu.inkmenu. El .inkwidget (GangRetaliation.archive) es solo
-//   un lienzo vacio con GRNemesisMenuController; todo se dibuja aqui por script.
-// - Cabecera [A] BANDA [D] con una pestana por banda (rombo rojo = alguien te conoce).
-// - A la izquierda, el arbol Jefe -> Tenientes -> Soldados unido con lineas; debajo, los caidos.
-// - A la derecha, el detalle del Nemesis seleccionado (clic en su tarjeta).
-// - TAB cambia de vista: Bandas, Territorio y Arsenal (las armas de Jefe que V tiene, por banda; datos de GRRewards).
-// Los datos los prepara CET (textos ya traducidos) y los deja en GRMenuData cada pocos segundos.
 
 module GangRetaliation
 
-// inkBorder es abstracta: hace falta una clase concreta (Dark Future hace lo mismo con la suya).
 public final class GRBorder extends inkBorder {}
 
 public class GRMenuEntry {
@@ -21,35 +10,26 @@ public class GRMenuEntry {
     public let dead: Bool;
     public let name: String;
     public let title: String;
-    // Ya se ha cruzado con V (puede emboscarle).
     public let known: Bool;
     public let renown: Int32;
-    // Un rasgo por linea: "S|corto|largo" (S = + fortaleza, - debilidad, ? sin descubrir).
     public let traits: String;
-    // Cuanto le falta para ascender, ya traducido.
     public let hint: String;
     public let encounters: Int32;
     public let escapes: Int32;
     public let ambushes: Int32;
     public let gigs: Int32;
     public let origin: String;
-    // Como murio (vacio si sigue vivo).
     public let cause: String;
-    // Id del Nemesis y claves de todos sus rasgos ("insulated,fireproof"), revelados o no: con eso GRRewards
-    // calcula el arma que daria (seccion "Arma unica" del Jefe).
     public let id: Int32;
     public let traitKeys: String;
 }
 
 public class GRMenuData extends ScriptableSystem {
     private let m_entries: array<ref<GRMenuEntry>>;
-    // Bandas en el orden en que CET las envia.
     private let m_gangs: array<String>;
-    // Avisos de vacante por banda (Jefe y Teniente).
     private let m_vacancyGangs: array<String>;
     private let m_vacancyBoss: array<String>;
     private let m_vacancyLieutenant: array<String>;
-    // Fase 8: territorio (paralelos por distrito), fuerza de las bandas y rumores.
     private let m_dKeys: array<String>;
     private let m_dLabels: array<String>;
     private let m_dRegions: array<String>;
@@ -62,29 +42,14 @@ public class GRMenuData extends ScriptableSystem {
     private let m_sNotes: array<String>;
     private let m_rDays: array<String>;
     private let m_rTexts: array<String>;
-    // Ultima banda vista, para volver a ella al abrir la pantalla.
     private let m_page: Int32;
-    // Lo mismo para la vista Arsenal (sus 9 bandas fijas tienen su propia pagina).
     private let m_arsenalPage: Int32;
-    // Vista pedida por API para la proxima apertura de la pantalla (indice + 1; 0 = ninguna).
     private let m_pendingView: Int32;
 
     public static func Get(gi: GameInstance) -> ref<GRMenuData> {
         return GameInstance.GetScriptableSystemsContainer(gi).Get(n"GangRetaliation.GRMenuData") as GRMenuData;
     }
 
-    // =========================================================================
-    // PUBLIC API FOR ADD-ONS -- stable: these names and signatures will not change.
-    // =========================================================================
-    // The Nemesis screen (hub menu entry n"gangretaliation_nemesis_menu") has three views:
-    //     n"gangs"  |  n"territory"  |  n"arsenal"
-    //
-    // RequestView: makes the Nemesis screen start in `view` the NEXT time it opens. One-shot: the screen
-    // consumes the request when it is built (in its OnInitialize, however it was opened), so later openings
-    // start in the default view (gangs) again. Call it right before you open the screen yourself. Returns
-    // false (nothing stored) for an unknown name.
-    //
-    //     GRMenuData.RequestView(gi, n"territory");
     public static func RequestView(gi: GameInstance, view: CName) -> Bool {
         let index: Int32 = GRMenuData.ViewIndex(view);
         let data: ref<GRMenuData> = GRMenuData.Get(gi);
@@ -96,25 +61,6 @@ public class GRMenuData extends ScriptableSystem {
         return true;
     }
 
-    // Opening the screen yourself, from a fullscreen menu of the hub (a gameuiMenuGameController): spawn our
-    // menu event on the dispatcher the hub gave you in OnSetMenuEventDispatcher. The hub closes your screen
-    // (you get OnUninitialize) and opens ours:
-    //
-    //     GRMenuData.RequestView(gi, n"gangs");
-    //     this.m_myDispatcher.SpawnEvent(n"OnGangRetaliationApiOpenView");
-    //
-    // (An own @addMethod(MenuScenario_HubMenu) handler that calls OnOpenMenu(n"gangretaliation_nemesis_menu", null)
-    // works the same; the request is consumed whichever way the screen gets opened.)
-    //
-    // OpenView: shortcut for the two lines above when you did not keep the dispatcher. `from` must be your
-    // gameuiMenuGameController living in the hub menu:
-    //
-    //     GRMenuData.OpenView(this, n"arsenal");
-    //
-    // It uses the dispatcher gameuiMenuGameController stores itself, so if your controller overrides
-    // OnSetMenuEventDispatcher it must call super.OnSetMenuEventDispatcher(...). Returns false, opens nothing and
-    // stores no request if: the view name is unknown, Gang Retaliation is disabled in its settings, `from` is
-    // not a gameuiMenuGameController, or it has no dispatcher. In that last case use RequestView + your own event.
     public static func OpenView(from: ref<inkGameController>, view: CName) -> Bool {
         let menu: ref<gameuiMenuGameController> = from as gameuiMenuGameController;
         if !IsDefined(menu) {
@@ -144,7 +90,6 @@ public class GRMenuData extends ScriptableSystem {
         return true;
     }
 
-    // Internal (used by the Nemesis screen): returns the requested view index (0..2) and clears it; -1 = none.
     public func ConsumePendingView() -> Int32 {
         let view: Int32 = this.m_pendingView - 1;
         this.m_pendingView = 0;
@@ -164,7 +109,6 @@ public class GRMenuData extends ScriptableSystem {
         return -1;
     }
 
-    // API para CET
     public func Clear() {
         ArrayClear(this.m_entries);
         ArrayClear(this.m_gangs);
@@ -185,8 +129,6 @@ public class GRMenuData extends ScriptableSystem {
         ArrayClear(this.m_rTexts);
     }
 
-    // CET llama con pocos argumentos por llamada (con muchos, la llamada desde Lua crashea el juego):
-    // Add crea la entrada y AddDetail / AddStats completan la ultima.
     public func Add(gangKey: String, gang: String, rank: Int32, dead: Bool, name: String, title: String, known: Bool, renown: Int32) {
         let entry: ref<GRMenuEntry> = new GRMenuEntry();
         entry.gangKey = gangKey;
@@ -254,7 +196,6 @@ public class GRMenuData extends ScriptableSystem {
         return "";
     }
 
-    // influence = "Banda|Nombre|valor,..." de mayor a menor; war = "Atacante|Defensor|fuerzaA|fuerzaD|dia|dias" o "".
     public func AddDistrict(key: String, label: String, region: String, owner: String, influence: String, war: String) {
         ArrayPush(this.m_dKeys, key);
         ArrayPush(this.m_dLabels, label);
@@ -318,18 +259,12 @@ public class GRMenuData extends ScriptableSystem {
     }
 }
 
-// -----------------------------------------------------------------------------
-// Pantalla
-// -----------------------------------------------------------------------------
 public class GRNemesisMenuController extends gameuiMenuGameController {
     private let m_data: ref<GRMenuData>;
-    // Dispatcher de eventos del escenario del hub (llega por OnSetMenuEventDispatcher): abre la pantalla de History.
     private let m_grDispatcher: wref<inkMenuEventDispatcher>;
     private let m_page: Int32;
     private let m_tree: wref<inkCanvas>;
-    // Conexiones del arbol: se juntan los tramos y se pintan por capas al final (como trazos SVG apilados).
     private let m_links: wref<inkCanvas>;
-    // Puntos de todas las conexiones seguidos; m_pathStart marca donde empieza cada una.
     private let m_pathPoints: array<Vector2>;
     private let m_pathStart: array<Int32>;
     private let m_pathColor: array<HDRColor>;
@@ -340,54 +275,38 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
     private let m_marks: wref<inkHorizontalPanel>;
     private let m_summary: wref<inkText>;
     private let m_buttonHints: wref<ButtonHints>;
-    // Tarjetas de la banda actual, en el orden de sus nombres "gr_card_N".
     private let m_cards: array<ref<GRMenuEntry>>;
     private let m_cardFrames: array<wref<inkImage>>;
-    // Pestanas de banda: se crean una vez y se recolorean (no se rehacen dentro de su propio clic).
     private let m_tabTexts: array<wref<inkText>>;
     private let m_tabBars: array<wref<inkRectangle>>;
     private let m_tabThreats: array<wref<inkRectangle>>;
-    // Nemesis seleccionado (por nombre; los datos se rehacen cada pocos segundos).
     private let m_selName: String;
-    // Fase 8: 0 = bandas, 1 = territorio. Armas de Jefe: 2 = arsenal.
     private let m_view: Int32;
     private let m_viewArsenal: wref<inkText>;
     private let m_rewards: ref<GRRewards>;
     private let m_arsenal: wref<inkCanvas>;
     private let m_arsenalPage: Int32;
-    // Tarjetas de arma de la banda actual, en el orden de sus nombres "gr_weapon_N": indice del arma en la foto
-    // de GRRewards. La primera es siempre el arma principal.
     private let m_aCards: array<Int32>;
     private let m_aFrames: array<wref<inkImage>>;
     private let m_aDetail: wref<inkVerticalPanel>;
-    // Arma seleccionada (indice en la foto de GRRewards; menor que 0 = ninguna).
     private let m_selWeapon: Int32;
-    // Boton AUMENTO al pie del detalle del arsenal: se crea con el panel y solo cambia de texto y color.
     private let m_augBorder: wref<GRBorder>;
     private let m_augTitle: wref<inkText>;
     private let m_augSub: wref<inkText>;
     private let m_augReady: Bool;
-    // Aumento: capa encima del arsenal. Sus botones se crean una vez (ningun widget se destruye dentro de su propio
-    // clic); lo que se rehace es m_fContent, que no tiene nada interactivo.
     private let m_fusion: wref<inkCanvas>;
     private let m_fContent: wref<inkCanvas>;
-    // Botones "gr_fuse_N": 0 y 1 = copia anterior / siguiente, 2 y 3 = elemento que queda, 4 = fusionar, 5 = volver.
     private let m_fButtons: array<wref<inkCanvas>>;
     private let m_fBorders: array<wref<GRBorder>>;
     private let m_fLabels: array<wref<inkText>>;
-    // Relleno del boton de fusionar mientras se mantiene presionado.
     private let m_fProgress: wref<inkRectangle>;
     private let m_fOpen: Bool;
-    // True despues de fusionar: se ve el resultado.
     private let m_fDone: Bool;
-    // Indices en la foto de GRRewards: el arma principal, las copias que se pueden fusionar y cual esta elegida.
     private let m_fMain: Int32;
     private let m_fCopies: array<Int32>;
     private let m_fCopy: Int32;
-    // Elemento que queda (menor que 0 = el del arma principal) y los que ofrecen los botones 2 y 3.
     private let m_fKeep: Int32;
     private let m_fChoices: array<Int32>;
-    // Respaldo si el juego no manda el progreso de "mantener": dos clics (fusionar, confirmar).
     private let m_fHoldSeen: Bool;
     private let m_fConfirm: Bool;
     private let m_gangSwitch: wref<inkHorizontalPanel>;
@@ -400,13 +319,11 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
     private let m_tBorders: array<wref<GRBorder>>;
     private let m_tAtWar: array<Bool>;
     private let m_selDistrict: String;
-    // Intel de la banda en la vista Bandas: barra y textos que el clic de desarrollo actualiza sin rehacer nada.
     private let m_intelGang: String;
     private let m_intelFill: wref<inkRectangle>;
     private let m_intelValue: wref<inkText>;
     private let m_intelLocated: wref<inkText>;
 
-    // Colores de la interfaz del juego (los mismos que Custom Perk Framework).
     private func Red() -> HDRColor {
         return new HDRColor(1.1761, 0.3809, 0.3476, 1.0);
     }
@@ -461,8 +378,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         return IsDefined(this.m_data) ? this.m_data.Text(key) : key;
     }
 
-    // Mayusculas sin acentos: StrUpper no pasa a mayuscula las letras acentuadas ("NéMESIS", "DAñO") y las
-    // mayusculas con tilde se ven mal en la fuente del juego. La Ñ se queda.
     private func Up(s: String) -> String {
         let out: String = StrUpper(s);
         out = StrReplaceAll(out, "á", "A");
@@ -497,7 +412,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         this.m_arsenalPage = IsDefined(this.m_data) ? this.m_data.GetArsenalPage() : 0;
         this.m_rewards = GRRewards.Get(this.GetPlayerControlledObject().GetGame());
         this.m_selWeapon = -1;
-        // Vista pedida por un add-on (GRMenuData.RequestView / OpenView): vale para esta apertura y se borra.
         let pending: Int32 = IsDefined(this.m_data) ? this.m_data.ConsumePendingView() : -1;
         if pending >= 0 && pending <= 2 {
             this.m_view = pending;
@@ -547,21 +461,16 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         }
     }
 
-    // El hub entrega aqui el dispatcher de su escenario (MenuScenario_HubMenu): con el se piden cambios de pantalla.
     protected cb func OnSetMenuEventDispatcher(menuEventDispatcher: wref<inkMenuEventDispatcher>) -> Bool {
         super.OnSetMenuEventDispatcher(menuEventDispatcher);
         this.m_grDispatcher = menuEventDispatcher;
         return true;
     }
 
-    // -------------------------------------------------------------------------
-    // Piezas fijas
-    // -------------------------------------------------------------------------
     private func CreateBackground(root: ref<inkCompoundWidget>) {
         let background: ref<inkRectangle> = new inkRectangle();
         background.SetName(n"background");
         background.SetAnchor(inkEAnchor.Fill);
-        // Deja libre la barra superior del juego (nivel, pestanas, dinero), que ahora queda por debajo.
         background.SetMargin(new inkMargin(0.0, 150.0, 0.0, 0.0));
         background.SetTintColor(this.Dark());
         background.SetOpacity(0.35);
@@ -589,7 +498,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         return label;
     }
 
-    // Texto que salta de linea al llegar a width.
     private func NewWrappedText(text: String, size: Int32, color: HDRColor, width: Float) -> ref<inkText> {
         let label: ref<inkText> = this.NewText(text, size, color, n"Regular");
         label.SetWrapping(true, width);
@@ -604,7 +512,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         return rect;
     }
 
-    // Marco fino que ocupa todo su padre.
     private func AddBorder(parent: ref<inkCompoundWidget>, color: HDRColor, thickness: Float, opacity: Float) {
         let border: ref<GRBorder> = new GRBorder();
         border.SetAnchor(inkEAnchor.Fill);
@@ -614,7 +521,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         border.Reparent(parent);
     }
 
-    // Fondo liso que ocupa todo su padre.
     private func AddFill(parent: ref<inkCompoundWidget>, color: HDRColor, opacity: Float) {
         let bg: ref<inkRectangle> = new inkRectangle();
         bg.SetAnchor(inkEAnchor.Fill);
@@ -623,7 +529,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         bg.Reparent(parent);
     }
 
-    // Linea horizontal fina de lado a lado (como la franja de la pantalla de ventajas).
     private func AddFullLine(root: ref<inkCompoundWidget>, top: Float) {
         let line: ref<inkRectangle> = new inkRectangle();
         line.SetAnchor(inkEAnchor.TopFillHorizontaly);
@@ -649,7 +554,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         this.AddFullLine(root, 150.0);
         this.AddFullLine(root, 336.0);
 
-        // Titulo a la izquierda y resumen a la derecha.
         let title: ref<inkText> = this.NewText(this.Up(this.T("GR-MenuTitle")), 64, this.Red(), n"Medium");
         title.SetAnchor(inkEAnchor.TopLeft);
         title.SetMargin(new inkMargin(120.0, 184.0, 0.0, 0.0));
@@ -662,7 +566,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         summary.Reparent(root);
         this.m_summary = summary;
 
-        // [A]  BANDA  N  [D]
         let header: ref<inkHorizontalPanel> = new inkHorizontalPanel();
         header.SetName(n"gang_switch");
         header.SetAnchor(inkEAnchor.TopCenter);
@@ -691,7 +594,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         right.Reparent(header);
         right.RegisterToCallback(n"OnRelease", this, n"OnGRNextClick");
 
-        // Una pestana por banda debajo; la actual en cian.
         let marks: ref<inkHorizontalPanel> = new inkHorizontalPanel();
         marks.SetName(n"gang_tabs");
         marks.SetAnchor(inkEAnchor.TopCenter);
@@ -703,7 +605,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         this.m_marks = marks;
     }
 
-    // Etiquetas de nivel a la izquierda del arbol.
     private func CreateRankLabels(root: ref<inkCompoundWidget>) {
         let keys: array<String> = ["GR-MenuBoss", "GR-MenuLieutenants", "GR-MenuSoldiers"];
         let i: Int32 = 0;
@@ -718,7 +619,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         }
     }
 
-    // Panel de detalle a la derecha (marco fijo; el contenido se rehace en cada Fill).
     private func CreateDetail(root: ref<inkCompoundWidget>) {
         let detail: ref<inkCanvas> = new inkCanvas();
         detail.SetName(n"detail");
@@ -738,9 +638,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         this.m_detailContent = content;
     }
 
-    // -------------------------------------------------------------------------
-    // Arbol
-    // -------------------------------------------------------------------------
     private func TierY(rank: Int32) -> Float {
         if rank == 3 {
             return 590.0;
@@ -755,8 +652,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         return 1480.0;
     }
 
-    // Codo de arriba a abajo con esquinas en chaflan a 45 grados: baja, gira, cruza, gira y baja.
-    // Se guarda como una polilinea; se pinta despues en DrawLinks.
     private func Connect(px: Float, py: Float, cx: Float, cy: Float, color: HDRColor) {
         ArrayPush(this.m_pathStart, ArraySize(this.m_pathPoints));
         ArrayPush(this.m_pathColor, color);
@@ -777,7 +672,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         ArrayPush(this.m_pathPoints, new Vector2(cx, cy));
     }
 
-    // Un trazo recto (horizontal, vertical o a 45 grados) de grosor width.
     private func DrawStroke(x1: Float, y1: Float, x2: Float, y2: Float, width: Float, color: HDRColor, opacity: Float) {
         let rect: ref<inkRectangle> = new inkRectangle();
         rect.SetAnchor(inkEAnchor.TopLeft);
@@ -786,11 +680,9 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         let dx: Float = x2 - x1;
         let dy: Float = y2 - y1;
         if AbsF(dx) < 0.5 || AbsF(dy) < 0.5 {
-            // Se alarga medio grosor por cada lado para cerrar las esquinas.
             rect.SetMargin(new inkMargin(MinF(x1, x2) - width / 2.0, MinF(y1, y2) - width / 2.0, 0.0, 0.0));
             rect.SetSize(new Vector2(AbsF(dx) + width, AbsF(dy) + width));
         } else {
-            // Diagonal: rectangulo girado 45 grados sobre su centro.
             let length: Float = AbsF(dx) * 1.41421356 + width * 0.42;
             rect.SetSize(new Vector2(length, width));
             rect.SetMargin(new inkMargin((x1 + x2) / 2.0 - length / 2.0, (y1 + y2) / 2.0 - width / 2.0, 0.0, 0.0));
@@ -800,8 +692,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         rect.Reparent(this.m_links);
     }
 
-    // Copia de la polilinea desplazada offset a un lado, con las esquinas en inglete
-    // (cada vertice se mueve por la bisectriz de las normales de sus dos tramos).
     private func OffsetPath(points: array<Vector2>, offset: Float) -> array<Vector2> {
         let result: array<Vector2>;
         let n: Int32 = ArraySize(points);
@@ -851,8 +741,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         }
     }
 
-    // Haz de 3 lineas finas paralelas, cada una con su halo tenue (como el boceto).
-    // Lineas finas sueltas en vez de franjas anchas encimadas: asi las esquinas a 45 grados no dejan muescas.
     private func DrawLinks() {
         let count: Int32 = ArraySize(this.m_pathStart);
         let offsets: array<Float> = [-13.0, 0.0, 13.0];
@@ -868,7 +756,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
                     ArrayPush(points, this.m_pathPoints[i]);
                     i += 1;
                 }
-                // Pasada 0: halo fino pegado a cada linea (una franja ancha dejaba bloques cuadrados en las esquinas).
                 for offset in offsets {
                     let line: array<Vector2> = this.OffsetPath(points, offset);
                     if pass == 0 {
@@ -883,8 +770,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         }
     }
 
-    // Etiqueta con marco fino: TE CONOCE / SIN CONTACTO.
-    // Tamano fijo calculado del texto: inkFlex no se ajustaba y el texto se montaba encima de lo siguiente.
     private func NewTag(text: String, size: Int32, color: HDRColor) -> ref<inkCompoundWidget> {
         let fontSize: Float = Cast<Float>(size);
         let tag: ref<inkCanvas> = new inkCanvas();
@@ -899,7 +784,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         return tag;
     }
 
-    // 10 segmentos de renombre.
     private func NewRenownBar(renown: Int32, color: HDRColor, width: Float, height: Float, gap: Float) -> ref<inkHorizontalPanel> {
         let bar: ref<inkHorizontalPanel> = new inkHorizontalPanel();
         let pip: Float = (width - gap * 9.0) / 10.0;
@@ -913,7 +797,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         return bar;
     }
 
-    // Rasgos de una entrada: lineas "S|corto|largo".
     private func TraitLines(entry: ref<GRMenuEntry>) -> array<String> {
         if StrLen(entry.traits) == 0 {
             let none: array<String>;
@@ -932,7 +815,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         return this.Grey();
     }
 
-    // Tarjeta de un Nemesis centrada en (x, y). Clic = verlo en el panel de detalle.
     private func AddCard(entry: ref<GRMenuEntry>, x: Float, y: Float, w: Float, h: Float, small: Bool, selected: Bool) {
         let index: Int32 = ArraySize(this.m_cards);
         ArrayPush(this.m_cards, entry);
@@ -970,7 +852,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         content.SetMargin(new inkMargin(30.0, 18.0, 30.0, 12.0));
         content.Reparent(card);
 
-        // RANGO  [TE CONOCE]
         let tags: ref<inkHorizontalPanel> = new inkHorizontalPanel();
         tags.Reparent(content);
         let rank: ref<inkText> = this.NewText(this.RankName(entry.rank), 28, rankColor, n"Bold");
@@ -992,7 +873,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         bar.SetMargin(new inkMargin(0.0, 10.0, 0.0, 0.0));
         bar.Reparent(content);
 
-        // Rasgos cortos: 3 en las grandes, 2 en las de soldado.
         let chips: ref<inkHorizontalPanel> = new inkHorizontalPanel();
         chips.SetMargin(new inkMargin(0.0, 10.0, 0.0, 0.0));
         chips.Reparent(content);
@@ -1011,7 +891,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         }
     }
 
-    // Marco: cian si esta seleccionado, color de rango si te conoce, gris si no.
     private func StyleFrame(frame: wref<inkImage>, entry: ref<GRMenuEntry>, selected: Bool) {
         frame.SetTintColor(selected ? this.Cyan() : this.RankColor(entry.rank));
         frame.SetOpacity(selected || entry.known ? 1.0 : 0.55);
@@ -1021,7 +900,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         return Equals(entry.name, this.m_selName);
     }
 
-    // Puesto sin ocupar en el arbol, con cuanto falta para cubrirlo.
     private func AddVacant(x: Float, y: Float, w: Float, h: Float, note: String) {
         let vacant: ref<inkCanvas> = new inkCanvas();
         vacant.SetAnchor(inkEAnchor.TopLeft);
@@ -1044,7 +922,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         sub.Reparent(content);
     }
 
-    // x de cada elemento repartidos en [left, right].
     private func Spread(count: Int32, index: Int32, left: Float, right: Float) -> Float {
         if count <= 1 {
             return (left + right) / 2.0;
@@ -1052,7 +929,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         return left + (right - left) * Cast<Float>(index) / Cast<Float>(count - 1);
     }
 
-    // Pestana de una banda; el rombo rojo marca que alguien de ella te conoce.
     private func AddTab(index: Int32) {
         let tab: ref<inkCanvas> = new inkCanvas();
         tab.SetName(StringToName("gr_tab_" + IntToString(index)));
@@ -1090,7 +966,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         this.m_tabThreats[index].SetVisible(threat);
     }
 
-    // Caidos, en tarjetas pequenas al pie del arbol (como mucho 5; el resto se cuenta).
     private func AddFallen(fallen: array<ref<GRMenuEntry>>) {
         let block: ref<inkVerticalPanel> = new inkVerticalPanel();
         block.SetAnchor(inkEAnchor.TopLeft);
@@ -1138,7 +1013,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
             let cause: ref<inkText> = this.NewText(this.RankName(entry.rank) + "  |  " + entry.cause, 28, this.Grey(), n"Regular");
             cause.Reparent(content);
 
-            // Tachado rojo sobre el nombre.
             let strike: ref<inkRectangle> = this.NewRect(MinF(360.0, Cast<Float>(StrLen(entry.name)) * 17.0), 3.0, this.Red(), 0.8);
             strike.SetAnchor(inkEAnchor.TopLeft);
             strike.SetMargin(new inkMargin(24.0, 36.0, 0.0, 0.0));
@@ -1152,14 +1026,12 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         }
     }
 
-    // Titulo de seccion del panel de detalle.
     private func AddSection(parent: ref<inkCompoundWidget>, text: String, top: Float) {
         let label: ref<inkText> = this.NewText(this.Up(text), 34, this.Light(), n"Bold");
         label.SetMargin(new inkMargin(0.0, top, 0.0, 12.0));
         label.Reparent(parent);
     }
 
-    // Recuadro de una cifra del historial.
     private func AddStat(parent: ref<inkCompoundWidget>, value: Int32, label: String) {
         let box: ref<inkCanvas> = new inkCanvas();
         box.SetSize(new Vector2(208.0, 130.0));
@@ -1193,14 +1065,12 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
             this.NewText("\"" + entry.title + "\"", 42, this.Light(), n"Regular").Reparent(panel);
         }
 
-        // Contacto con V.
         let contact: ref<inkCompoundWidget> = this.NewTag(this.T(entry.known ? "GR-MenuKnown" : "GR-MenuUnknown"), 26, entry.known ? this.Red() : this.Grey());
         contact.SetHAlign(inkEHorizontalAlign.Left);
         contact.SetMargin(new inkMargin(0.0, 36.0, 0.0, 10.0));
         contact.Reparent(panel);
         this.NewWrappedText(this.T(entry.known ? "GR-MenuKnownNote" : "GR-MenuUnknownNote"), 36, this.Light(), width).Reparent(panel);
 
-        // Renombre: barra con las marcas de ascenso rapido (4 = Teniente, 8 = Jefe).
         let renownRow: ref<inkHorizontalPanel> = new inkHorizontalPanel();
         renownRow.SetMargin(new inkMargin(0.0, 44.0, 0.0, 12.0));
         renownRow.Reparent(panel);
@@ -1228,13 +1098,11 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         bossMark.Reparent(marks);
         this.NewWrappedText(entry.hint, 36, this.Light(), width).Reparent(panel);
 
-        // Rasgos completos.
         this.AddSection(panel, this.T("GR-MenuTraits"), 44.0);
         let traitLines: array<String> = this.TraitLines(entry);
         for line in traitLines {
             let parts: array<String> = StrSplit(line, "|");
             if ArraySize(parts) >= 3 {
-                // Sin descubrir: el texto ya empieza por "???".
                 let prefix: String = Equals(parts[0], "?") ? "" : parts[0] + "  ";
                 let trait: ref<inkText> = this.NewWrappedText(prefix + parts[2], 38, this.TraitColor(parts[0]), width);
                 trait.SetFontStyle(n"Medium");
@@ -1243,12 +1111,10 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
             }
         }
 
-        // Arma unica: la que V se lleva si mata a este Jefe.
         if entry.rank >= 3 && !entry.dead {
             this.AddBossWeapon(panel, entry, width);
         }
 
-        // Historial.
         let stats: ref<inkHorizontalPanel> = new inkHorizontalPanel();
         stats.SetMargin(new inkMargin(0.0, 44.0, 0.0, 0.0));
         stats.Reparent(panel);
@@ -1262,9 +1128,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         origin.Reparent(panel);
     }
 
-    // Seccion "Arma unica" del panel de un Jefe vivo, entre dos lineas doradas: nombre, tipo y arma base, y el
-    // elemento y el bono que tendria (GRRewards.PreviewBossWeapon). Mientras le quede algun rasgo sin revelar
-    // (lineas "?": se revelan todos al escanearlo) solo se ve "???".
     private func AddBossWeapon(panel: ref<inkCompoundWidget>, entry: ref<GRMenuEntry>, width: Float) {
         if !IsDefined(this.m_rewards) || this.m_rewards.HasGiven(entry.id) {
             return;
@@ -1288,7 +1151,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         top.Reparent(panel);
         this.NewText(this.Up(this.T("GR-MenuUniqueWeapon")), 34, this.Gold(), n"Bold").Reparent(panel);
 
-        // El mismo nombre que tendra el arma: GRRewards lo arma con el nombre del Jefe y su apodo.
         let boss: String = entry.name;
         if StrLen(entry.title) > 0 {
             boss = entry.name + " \"" + entry.title + "\"";
@@ -1322,7 +1184,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         ArrayClear(this.m_pathPoints);
         ArrayClear(this.m_pathStart);
         ArrayClear(this.m_pathColor);
-        // Las conexiones van en su propio lienzo, el primero del arbol: quedan por debajo de las tarjetas.
         let links: ref<inkCanvas> = new inkCanvas();
         links.SetName(n"links");
         links.SetAnchor(inkEAnchor.Fill);
@@ -1352,7 +1213,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         let gangKey: String = gangs[this.m_page];
         let entries: array<ref<GRMenuEntry>> = this.m_data.GetEntries();
 
-        // Pestanas de banda (se rehacen solo si cambia el numero de bandas).
         let i: Int32 = 0;
         if ArraySize(this.m_tabTexts) != count {
             this.m_marks.RemoveAllChildren();
@@ -1380,7 +1240,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
             i += 1;
         }
 
-        // Miembros de la banda.
         let boss: ref<GRMenuEntry>;
         let lieutenants: array<ref<GRMenuEntry>>;
         let soldiers: array<ref<GRMenuEntry>>;
@@ -1412,7 +1271,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
                 }
             }
         }
-        // Sin seleccion valida: el Jefe, o el primero que haya.
         if !IsDefined(selected) {
             if IsDefined(boss) {
                 selected = boss;
@@ -1434,7 +1292,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         this.m_summary.SetText(this.T("GR-MenuAlive") + " " + IntToString(alive) + "   |   " + this.T("GR-MenuFallenShort") + " " + IntToString(ArraySize(fallen))
             + "   |   " + this.T("GR-MenuKnowYouShort") + " " + IntToString(known));
 
-        // Drug Dealer: zonas que V le quito a esta banda, bajo la linea de las pestanas (a la izquierda).
         let lostTurfs: String = GRIntegrations.GetDDLostTurfs(gangKey);
         if StrLen(lostTurfs) > 0 {
             let lostLine: ref<inkHorizontalPanel> = new inkHorizontalPanel();
@@ -1456,14 +1313,12 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         let bigW: Float = 600.0;
         let bigH: Float = 290.0;
 
-        // Jefe (o puesto libre).
         if IsDefined(boss) {
             this.AddCard(boss, cx, bossY, bigW, bigH, false, this.IsSelected(boss));
         } else {
             this.AddVacant(cx, bossY, bigW, bigH, this.m_data.GetVacancy(gangKey, 3));
         }
 
-        // Tenientes: siempre 2 plazas; las vacias se ven como puesto libre.
         let ltXs: array<Float> = [cx - 660.0, cx + 660.0];
         let ltCount: Int32 = ArraySize(lieutenants);
         i = 0;
@@ -1477,7 +1332,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
             i += 1;
         }
 
-        // Soldados: la primera mitad cuelga del teniente izquierdo y el resto del derecho.
         let soldierCount: Int32 = ArraySize(soldiers);
         if soldierCount == 0 {
             let noSoldiers: ref<inkText> = this.NewText(this.T("GR-MenuNoSoldiers"), 34, this.Grey(), n"Regular");
@@ -1518,12 +1372,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         this.FillDetail(selected);
     }
 
-    // -------------------------------------------------------------------------
-    // Cambiar de banda o de Nemesis
-    // -------------------------------------------------------------------------
-    // El menu principal (hub) se dibuja despues que esta pantalla, a pantalla completa y con su fondo:
-    // la tapaba y la dejaba al ~40%. Las pantallas del juego quedan por delante del hub; esta se mueve
-    // al final de la capa de menus para dibujarse encima, como ellas.
     private func BringToFront() {
         let root: ref<inkWidget> = this.GetRootWidget();
         root.SetName(n"GR_NemesisRoot");
@@ -1554,9 +1402,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         GRLog("Menu: no se encontro la pantalla en la capa de menus");
     }
 
-    // =========================================================================
-    // Fase 8: vista de territorio
-    // =========================================================================
     private func GangColor(gang: String) -> HDRColor {
         if Equals(gang, "TygerClaws") {
             return new HDRColor(1.0, 0.37, 0.66, 1.0);
@@ -1588,7 +1433,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         return this.Light();
     }
 
-    // Cambia la primera aparicion de token por value ("%s", "%d").
     private func Fmt(fmt: String, token: String, value: String) -> String {
         let i: Int32 = StrFindFirst(fmt, token);
         if i < 0 {
@@ -1598,7 +1442,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         return StrLeft(fmt, i) + value + StrMid(fmt, after, StrLen(fmt) - after);
     }
 
-    // [TAB] BANDAS | TERRITORIO, bajo el titulo. Clic en cualquiera de los dos tambien cambia.
     private func CreateViewSwitch(root: ref<inkCompoundWidget>) {
         let panel: ref<inkHorizontalPanel> = new inkHorizontalPanel();
         panel.SetName(n"view_switch");
@@ -1640,7 +1483,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         arsenal.Reparent(panel);
         this.m_viewArsenal = arsenal;
 
-        // Add-on Gang Retaliation History: cuarto rotulo que abre SU pantalla (no es una vista nuestra, nunca queda activo).
         if GRHasHistory() {
             let sep3: ref<inkText> = this.NewText("  |  ", 32, this.Dim(), n"Medium");
             sep3.SetVAlign(inkEVerticalAlign.Center);
@@ -1672,11 +1514,9 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         this.m_arsenal = arsenal;
     }
 
-    // Muestra una vista u otra (no rehace nada).
     private func ShowView() {
         let gangs: Bool = this.m_view == 0;
         let arsenal: Bool = this.m_view == 2;
-        // Bandas y Arsenal comparten el selector [A] BANDA N [D] y las pestanas.
         this.m_gangSwitch.SetVisible(gangs || arsenal);
         this.m_marks.SetVisible(gangs || arsenal);
         this.m_tree.SetVisible(gangs);
@@ -1698,8 +1538,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         if this.m_view == 1 {
             this.FillTerritory();
         } else {
-            // La foto de las armas se toma al entrar en la vista: con el menu abierto solo las cambia un Aumento,
-            // que la rehace. Bandas tambien la usa (el panel del Jefe dice si su arma seria copia de una de V).
             if IsDefined(this.m_rewards) {
                 this.m_rewards.Snapshot();
             }
@@ -1721,7 +1559,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         this.PlaySound(n"Button", n"OnPress");
     }
 
-    // TAB: bandas -> territorio -> arsenal -> bandas. Con el add-on History instalado, desde arsenal abre su pantalla.
     private func ToggleView() {
         if this.m_view == 2 && GRHasHistory() && IsDefined(this.m_grDispatcher) {
             this.OpenHistory();
@@ -1730,9 +1567,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         this.SetView((this.m_view + 1) % 3);
     }
 
-    // Cambia a la pantalla del add-on Gang Retaliation History sin salir del hub: el evento lo recibe el escenario
-    // del hub (OnGangRetaliationOpenHistory, al final del archivo), que cierra esta pantalla y abre la suya. Es la
-    // misma via que usa RedFalcon para abrir la nuestra desde la suya.
     private func OpenHistory() {
         if this.m_fOpen {
             return;
@@ -1770,7 +1604,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         }
     }
 
-    // Texto en una posicion fija del lienzo de territorio.
     private func PlaceText(parent: ref<inkCompoundWidget>, text: String, size: Int32, color: HDRColor, style: CName, x: Float, y: Float) -> ref<inkText> {
         let label: ref<inkText> = this.NewText(text, size, color, style);
         label.SetAnchor(inkEAnchor.TopLeft);
@@ -1786,7 +1619,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         rect.Reparent(parent);
     }
 
-    // Barra con un tramo por banda ("Banda|Nombre|valor,...").
     private func NewInfluenceBar(influence: String, width: Float, height: Float) -> ref<inkHorizontalPanel> {
         let bar: ref<inkHorizontalPanel> = new inkHorizontalPanel();
         let parts: array<String> = StrSplit(influence, ",");
@@ -1806,7 +1638,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         return bar;
     }
 
-    // Nombre visible de una banda dentro de la influencia del distrito.
     private func InfluenceLabel(influence: String, gang: String) -> String {
         let influenceParts: array<String> = StrSplit(influence, ",");
         for part in influenceParts {
@@ -1856,7 +1687,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
             tag.Reparent(row);
         }
         this.PlaceText(row, this.Up(this.InfluenceLabel(influence, owner)), 24, this.GangColor(owner), n"Bold", 18.0, 48.0);
-        // Drug Dealer: zona que V le quito (o le disputa) a las bandas.
         let ddState: Int32 = GRIntegrations.GetDDTurfState(this.m_tKeys[index]);
         if ddState >= 1 {
             let ddTag: ref<inkCompoundWidget> = this.NewTag(this.T(ddState == 2 ? "GR-MenuDDControlled" : "GR-MenuDDContested"), 18, ddState == 2 ? this.Cyan() : this.Gold());
@@ -1902,7 +1732,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
             return;
         }
 
-        // Leyenda: un color por banda.
         let legend: ref<inkHorizontalPanel> = new inkHorizontalPanel();
         legend.SetAnchor(inkEAnchor.TopCenter);
         legend.SetAnchorPoint(new Vector2(0.5, 0.0));
@@ -1923,7 +1752,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
             i += 1;
         }
 
-        // Distrito seleccionado: el de antes, o el primero en guerra, o el primero.
         let selected: Int32 = -1;
         let warCount: Int32 = 0;
         i = 0;
@@ -1949,7 +1777,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         this.m_selDistrict = keys[selected];
         this.m_summary.SetText(this.T("GR-MenuWars") + " " + IntToString(warCount) + "   |   " + this.T("GR-MenuDistricts") + " " + IntToString(count));
 
-        // Zonas en 4 columnas, cada una con sus distritos.
         let columns: array<ref<inkVerticalPanel>>;
         let c: Int32 = 0;
         while c < 4 {
@@ -1992,7 +1819,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
 
         this.FillGangStrength();
 
-        // Panel de detalle a la derecha.
         let detail: ref<inkCanvas> = new inkCanvas();
         detail.SetAnchor(inkEAnchor.TopLeft);
         detail.SetMargin(new inkMargin(2720.0, 392.0, 0.0, 0.0));
@@ -2008,7 +1834,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         this.FillDistrictDetail(selected);
     }
 
-    // Fuerza de las bandas, en 3 columnas bajo los distritos.
     private func FillGangStrength() {
         let gangs: array<String> = this.m_data.StrengthGangs();
         let labels: array<String> = this.m_data.StrengthLabels();
@@ -2058,7 +1883,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         if pos < 0 {
             return;
         }
-        // Copias locales: indexar directamente el resultado de una funcion devolvia textos basura.
         let labels: array<String> = this.m_data.DistrictLabels();
         let regions: array<String> = this.m_data.DistrictRegions();
         let owners: array<String> = this.m_data.DistrictOwners();
@@ -2084,7 +1908,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
             ddText.Reparent(panel);
         }
 
-        // Influencia de cada banda.
         this.AddSection(panel, this.T("GR-MenuInfluence"), 36.0);
         let influenceParts: array<String> = StrSplit(influence, ",");
         for part in influenceParts {
@@ -2101,7 +1924,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
             }
         }
 
-        // Guerra: quien ataca y quien defiende, fuerzas y tendencia.
         let w: array<String> = StrSplit(war, "|");
         if ArraySize(w) >= 6 {
             let attacker: String = w[0];
@@ -2157,7 +1979,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
             calm.Reparent(panel);
         }
 
-        // Rumores recientes.
         this.AddSection(panel, this.T("GR-MenuRumors"), 44.0);
         let days: array<String> = this.m_data.RumorDays();
         let texts: array<String> = this.m_data.RumorTexts();
@@ -2201,15 +2022,10 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         return false;
     }
 
-    // =========================================================================
-    // Armas de Jefe: vista de arsenal
-    // =========================================================================
-    // Las 9 bandas que dan arma, siempre las mismas y en este orden (el de GangColor).
     private func ArsenalGangs() -> array<String> {
         return ["Maelstrom", "TygerClaws", "Valentinos", "SixthStreet", "Animals", "VoodooBoys", "Wraiths", "Scavengers", "Barghest"];
     }
 
-    // Nombres propios de las bandas, los mismos que usa CET (names.lua): aqui no dependen de que haya Nemesis.
     private func ArsenalGangLabel(gang: String) -> String {
         if Equals(gang, "TygerClaws") {
             return "Tyger Claws";
@@ -2226,7 +2042,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         return gang;
     }
 
-    // 0 = Electrico, 1 = Termico, 2 = Quimico.
     private func ElementColor(element: Int32) -> HDRColor {
         if element == 0 {
             return new HDRColor(0.435, 0.659, 1.0, 1.0);
@@ -2240,7 +2055,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         return this.Grey();
     }
 
-    // "DANO QUIMICO"
     private func ElementText(element: Int32) -> String {
         if element < 0 || element > 2 {
             return "";
@@ -2248,7 +2062,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         return this.Up(this.T("GR-MenuDmg-" + IntToString(element)));
     }
 
-    // Pestana en Arsenal: sin rombo de amenaza y en gris tenue si V no tiene armas de esa banda.
     private func StyleArsenalTab(index: Int32, label: String, active: Bool, hasWeapons: Bool) {
         this.m_tabTexts[index].SetText(this.Up(label));
         this.m_tabTexts[index].SetTintColor(active ? this.Cyan() : (hasWeapons ? this.Grey() : this.Dim()));
@@ -2257,7 +2070,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         this.m_tabThreats[index].SetVisible(false);
     }
 
-    // Barra del bono elemental de 0 a 60 %: marcas en 20 y 40, y el tope (60) en rojo.
     private func NewBonusBar(bonus: Float, color: HDRColor, width: Float, height: Float) -> ref<inkCanvas> {
         let bar: ref<inkCanvas> = new inkCanvas();
         bar.SetSize(new Vector2(width, height + 16.0));
@@ -2272,7 +2084,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         return bar;
     }
 
-    // Escala bajo la barra: 0, 20 %, 40 % y 60 % (tope).
     private func NewBonusScale(width: Float) -> ref<inkCanvas> {
         let scale: ref<inkCanvas> = new inkCanvas();
         scale.SetSize(new Vector2(width, 34.0));
@@ -2286,8 +2097,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         return scale;
     }
 
-    // Icono 2D del arma dentro de box (ya colgado del arbol), entero y centrado, sin deformar: cada icono del juego
-    // tiene su propia proporcion (la Katana es 10:1, la Yukimura 1.7:1) y GRRewards la conoce por record.
     private func AddWeaponIcon(box: ref<inkCanvas>, weaponIndex: Int32, boxW: Float, boxH: Float) {
         let aspect: Float = MaxF(0.1, this.m_rewards.GetOwnedIconAspect(weaponIndex));
         let w: Float = boxW;
@@ -2304,7 +2113,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         this.RequestWeaponIcon(icon, weaponIndex);
     }
 
-    // Pide al juego el icono 2D del arma (el del inventario). El icono llega despues; hasta entonces no se ve nada.
     private func RequestWeaponIcon(icon: ref<inkImage>, weaponIndex: Int32) {
         let recordID: TweakDBID = this.m_rewards.GetOwnedRecord(weaponIndex);
         let record: ref<Item_Record> = TweakDBInterface.GetItemRecord(recordID);
@@ -2318,12 +2126,10 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         }
     }
 
-    // "+39 %" grande y "DANO QUIMICO" al lado, en el color del elemento.
     private func NewElementRow(weaponIndex: Int32, valueSize: Int32, labelSize: Int32) -> ref<inkHorizontalPanel> {
         return this.NewElementRowOf(this.m_rewards.GetOwnedElement(weaponIndex), this.m_rewards.GetOwnedBonusF(weaponIndex), valueSize, labelSize);
     }
 
-    // Lo mismo con el elemento y el bono dados (resultado de un Aumento, arma de un Jefe vivo).
     private func NewElementRowOf(element: Int32, bonus: Float, valueSize: Int32, labelSize: Int32) -> ref<inkHorizontalPanel> {
         let color: HDRColor = this.ElementColor(element);
         let row: ref<inkHorizontalPanel> = new inkHorizontalPanel();
@@ -2337,14 +2143,12 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         return row;
     }
 
-    // Marco: cian si esta seleccionada; si no, dorado el arma principal (la primera tarjeta) y gris las copias.
     private func StyleWeaponFrame(cardIndex: Int32, selected: Bool) {
         let frame: wref<inkImage> = this.m_aFrames[cardIndex];
         frame.SetTintColor(selected ? this.Cyan() : (cardIndex == 0 ? this.Gold() : this.Dim()));
         frame.SetOpacity(1.0);
     }
 
-    // Tarjeta de un arma con la esquina superior izquierda en (x, y). big = arma principal. Clic = verla en el detalle.
     private func AddWeaponCard(weaponIndex: Int32, x: Float, y: Float, w: Float, h: Float, big: Bool) {
         let index: Int32 = ArraySize(this.m_aCards);
         ArrayPush(this.m_aCards, weaponIndex);
@@ -2379,7 +2183,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         this.StyleWeaponFrame(index, weaponIndex == this.m_selWeapon);
 
         if big {
-            // Icono a la izquierda (caja de 1060x298) y, debajo, el arma base y la banda.
             let iconBox: ref<inkCanvas> = new inkCanvas();
             iconBox.SetAnchor(inkEAnchor.TopLeft);
             iconBox.SetMargin(new inkMargin(70.0, 190.0, 0.0, 0.0));
@@ -2389,7 +2192,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
             this.PlaceText(card, this.Up(this.m_rewards.GetOwnedBaseName(weaponIndex)) + "  |  " + this.Up(this.ArsenalGangLabel(this.m_rewards.GetOwnedGang(weaponIndex))),
                 28, this.Dim(), n"Medium", 80.0, 560.0);
 
-            // Columna derecha: etiqueta, nombre, elemento con su barra y nivel.
             let column: ref<inkVerticalPanel> = new inkVerticalPanel();
             column.SetAnchor(inkEAnchor.TopLeft);
             column.SetMargin(new inkMargin(1240.0, 60.0, 0.0, 0.0));
@@ -2418,7 +2220,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
             content.SetMargin(new inkMargin(30.0, 18.0, 30.0, 12.0));
             content.Reparent(card);
 
-            // Icono chico (caja de 240x68) y EQUIPADA al lado.
             let top: ref<inkHorizontalPanel> = new inkHorizontalPanel();
             top.Reparent(content);
             let smallBox: ref<inkCanvas> = new inkCanvas();
@@ -2461,7 +2262,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
             tag.Reparent(panel);
         }
 
-        // Elemento: bono con su barra de 0 a 60 %.
         this.AddSection(panel, this.T("GR-MenuElement"), 44.0);
         this.NewElementRow(weaponIndex, 72, 30).Reparent(panel);
         let bar: ref<inkCanvas> = this.NewBonusBar(bonus, this.ElementColor(element), width, 22.0);
@@ -2469,7 +2269,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         bar.Reparent(panel);
         this.NewBonusScale(width).Reparent(panel);
 
-        // Nivel de Aumento: titulo, rombos y numero romano en una sola fila (el pie del panel es del boton AUMENTO).
         let augment: ref<inkHorizontalPanel> = new inkHorizontalPanel();
         augment.SetMargin(new inkMargin(0.0, 30.0, 0.0, 0.0));
         augment.Reparent(panel);
@@ -2479,19 +2278,16 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         augmentLabel.Reparent(augment);
         this.NewLevelRow(this.m_rewards.GetOwnedLevel(weaponIndex), 26.0, 40, 28).Reparent(augment);
 
-        // Probabilidad de aplicar el estado (el mismo numero que el bono).
         this.AddSection(panel, this.T("GR-MenuChance"), 32.0);
         this.NewText(this.BonusText(bonus) + " %", 72, this.Light(), n"Bold").Reparent(panel);
         if element >= 0 && element <= 2 {
             this.NewWrappedText(this.T("GR-MenuProc-" + IntToString(element)), 34, this.Light(), width).Reparent(panel);
         }
 
-        // Dano por golpe y nivel del arma.
         let stats: ref<inkHorizontalPanel> = new inkHorizontalPanel();
         stats.SetMargin(new inkMargin(0.0, 30.0, 0.0, 0.0));
         stats.Reparent(panel);
         this.AddStat(stats, RoundF(this.m_rewards.GetOwnedDamage(weaponIndex)), this.T("GR-MenuDamage"));
-        // Calidad del juego ("NIVEL 3+"), con su etiqueta para que no se confunda con el nivel de Aumento.
         let quality: ref<inkVerticalPanel> = new inkVerticalPanel();
         quality.SetVAlign(inkEVerticalAlign.Center);
         quality.SetMargin(new inkMargin(20.0, 0.0, 0.0, 0.0));
@@ -2518,8 +2314,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         let gangKey: String = gangs[this.m_arsenalPage];
         let owned: Int32 = IsDefined(this.m_rewards) ? this.m_rewards.GetOwnedCount() : 0;
 
-        // Pestanas: las mismas de Bandas; solo se rehacen si cambia el numero (nunca dentro de su propio clic,
-        // porque en esta vista siempre son 9).
         let i: Int32 = 0;
         if ArraySize(this.m_tabTexts) != count {
             this.m_marks.RemoveAllChildren();
@@ -2531,7 +2325,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
                 i += 1;
             }
         }
-        // Armas de la banda actual; la principal es la equipada o, si ninguna lo esta, la de mayor bono.
         let list: array<Int32>;
         let main: Int32 = this.ArsenalMain(gangKey);
         i = 0;
@@ -2567,11 +2360,9 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
             this.m_selWeapon = main;
         }
 
-        // Arma principal: tarjeta grande.
         this.PlaceText(this.m_arsenal, this.Up(this.T("GR-MenuMainWeapon")), 30, this.Grey(), n"Bold", 120.0, 400.0);
         this.AddWeaponCard(main, 120.0, 450.0, 2480.0, 700.0, true);
 
-        // Copias: hasta 8 tarjetas en 2 filas de 4.
         this.PlaceText(this.m_arsenal, this.Up(this.T("GR-MenuCopies")) + "  ·  " + IntToString(ArraySize(list) - 1), 30, this.Grey(), n"Bold", 120.0, 1210.0);
         let shown: Int32 = 0;
         for weapon in list {
@@ -2581,7 +2372,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
             }
         }
 
-        // Panel de detalle a la derecha (mismo marco que el de Bandas).
         let detail: ref<inkCanvas> = new inkCanvas();
         detail.SetAnchor(inkEAnchor.TopLeft);
         detail.SetMargin(new inkMargin(2720.0, 400.0, 0.0, 0.0));
@@ -2598,8 +2388,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         this.FillWeaponDetail(this.m_selWeapon);
     }
 
-    // Arma principal de una banda en la foto de GRRewards: la equipada o, si ninguna lo esta, la de mayor bono.
-    // Menor que 0 = V no tiene armas de esa banda.
     private func ArsenalMain(gangKey: String) -> Int32 {
         let main: Int32 = -1;
         let mainScore: Int32 = -1;
@@ -2618,7 +2406,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         return main;
     }
 
-    // "41,8" o "38": el bono con un decimal solo si lo tiene. El separador decimal sale del idioma.
     private func BonusText(bonus: Float) -> String {
         let rounded: Int32 = RoundF(bonus);
         if AbsF(bonus - Cast<Float>(rounded)) < 0.05 {
@@ -2636,14 +2423,12 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         return numerals[Min(5, Max(1, level)) - 1];
     }
 
-    // Nivel de Aumento: 5 rombos (dorados hasta level), el numero romano y el dano que suma ("+10 % DANO").
     private func NewLevelRow(level: Int32, pipSize: Float, romanSize: Int32, noteSize: Int32) -> ref<inkHorizontalPanel> {
         let row: ref<inkHorizontalPanel> = new inkHorizontalPanel();
         let i: Int32 = 1;
         while i <= 5 {
             let pip: ref<inkRectangle> = this.NewRect(pipSize, pipSize, i <= level ? this.Gold() : this.Empty(), 1.0);
             pip.SetVAlign(inkEVerticalAlign.Center);
-            // Girado 45 grados ocupa 1,41 veces su lado: el margen deja sitio a las puntas.
             pip.SetMargin(new inkMargin(pipSize * 0.25, 0.0, pipSize * 0.35, 0.0));
             pip.SetRenderTransformPivot(new Vector2(0.5, 0.5));
             pip.SetRotation(45.0);
@@ -2663,7 +2448,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         return row;
     }
 
-    // Copias que se pueden fusionar con main: las demas armas de su banda que V no lleva equipadas.
     private func FusableCopies(main: Int32) -> array<Int32> {
         let result: array<Int32>;
         if main < 0 || !IsDefined(this.m_rewards) {
@@ -2681,10 +2465,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         return result;
     }
 
-    // -------------------------------------------------------------------------
-    // Aumento: boton del panel de detalle
-    // -------------------------------------------------------------------------
-    // Boton al pie del panel de detalle (lienzo de 1000x1520). El texto y el color los pone UpdateAugmentButton.
     private func AddAugmentButton(detail: ref<inkCanvas>) {
         let button: ref<inkCanvas> = new inkCanvas();
         button.SetName(n"gr_augment");
@@ -2704,7 +2484,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         this.m_augSub = this.PlaceText(button, "", 28, this.Light(), n"Medium", 36.0, 88.0);
     }
 
-    // Encendido si el arma principal de la banda tiene copias sin equipar y no esta al tope; si no, apagado con el motivo.
     private func UpdateAugmentButton() {
         this.m_augReady = false;
         if ArraySize(this.m_aCards) == 0 || !IsDefined(this.m_augBorder) || !IsDefined(this.m_rewards) {
@@ -2738,10 +2517,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         return true;
     }
 
-    // -------------------------------------------------------------------------
-    // Aumento: capa de fusion
-    // -------------------------------------------------------------------------
-    // Panel de 3000x1500 centrado, encima de todo. Se crea una vez, oculto.
     private func CreateFusion(root: ref<inkCompoundWidget>) {
         let layer: ref<inkCanvas> = new inkCanvas();
         layer.SetName(n"fusion");
@@ -2750,7 +2525,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         layer.Reparent(root);
         this.m_fusion = layer;
 
-        // Fondo: oscurece la pantalla y, al ser interactivo, se queda con los clics que irian a lo de abajo.
         let scrim: ref<inkRectangle> = new inkRectangle();
         scrim.SetAnchor(inkEAnchor.Fill);
         scrim.SetMargin(new inkMargin(0.0, 150.0, 0.0, 0.0));
@@ -2758,7 +2532,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         scrim.SetOpacity(0.6);
         scrim.SetInteractive(true);
         scrim.Reparent(layer);
-        // Fondo opaco de toda el area de contenido (de la linea de la cabecera para abajo): detras de la capa no se ve nada.
         let backdrop: ref<inkRectangle> = new inkRectangle();
         backdrop.SetAnchor(inkEAnchor.Fill);
         backdrop.SetMargin(new inkMargin(0.0, 339.0, 0.0, 0.0));
@@ -2779,14 +2552,12 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         content.Reparent(panel);
         this.m_fContent = content;
 
-        // Botones fijos, por encima del contenido. El orden es el de sus nombres "gr_fuse_N".
         this.AddFusionButton(panel, 1600.0, 312.0, 64.0, 64.0, 40);
         this.AddFusionButton(panel, 1772.0, 312.0, 64.0, 64.0, 40);
         this.AddFusionButton(panel, 520.0, 996.0, 440.0, 80.0, 34);
         this.AddFusionButton(panel, 988.0, 996.0, 440.0, 80.0, 34);
         this.AddFusionButton(panel, 850.0, 1280.0, 1300.0, 130.0, 48);
         this.AddFusionButton(panel, 80.0, 1305.0, 520.0, 80.0, 34);
-        // Mantener presionado, como al fabricar: el juego manda el progreso de "craft_item" (clic izquierdo o F).
         let fuse: wref<inkCanvas> = this.m_fButtons[4];
         fuse.RegisterToCallback(n"OnHold", this, n"OnGRFuseHold");
         fuse.RegisterToCallback(n"OnHoverOut", this, n"OnGRFuseHoverOut");
@@ -2830,12 +2601,10 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         this.m_fLabels[index].SetTintColor(textColor);
     }
 
-    // Relleno del boton de fusionar: 0 a 1.
     private func SetFuseProgress(progress: Float) {
         this.m_fProgress.SetSize(new Vector2(1300.0 * MinF(1.0, MaxF(0.0, progress)), 130.0));
     }
 
-    // Elemento que quedaria ahora: el elegido o, si no se eligio, el del arma principal.
     private func FusionKeep() -> Int32 {
         if this.m_fKeep >= 0 {
             return this.m_fKeep;
@@ -2857,7 +2626,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         }
         this.m_fMain = main;
         this.m_fCopies = copies;
-        // Si V tenia elegida una copia en el arsenal, la fusion empieza por esa.
         this.m_fCopy = 0;
         let i: Int32 = 0;
         while i < ArraySize(copies) {
@@ -2870,7 +2638,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         this.m_fDone = false;
         this.m_fConfirm = false;
         this.m_fOpen = true;
-        // El arsenal se oculta entero mientras la capa esta abierta (atenuado se seguia viendo, encimado con la capa).
         this.m_arsenal.SetVisible(false);
         this.m_fusion.SetVisible(true);
         this.RefreshFusion();
@@ -2881,7 +2648,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         this.PlaySound(n"Button", n"OnPress");
     }
 
-    // Cierra la capa y deja el arsenal como estaba. No destruye nada: el contenido se rehace al volver a abrir.
     private func CloseFusion() {
         if !this.m_fOpen {
             return;
@@ -2897,8 +2663,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         this.PlaySound(n"Button", n"OnPress");
     }
 
-    // Tarjeta de 820x640 de la fusion, con la esquina en (x, 300) del panel: etiqueta, nombre, icono 2D, bono con su
-    // elemento y nivel. Los tres ultimos se pasan aparte porque la tarjeta "Resultado" muestra los que quedarian.
     private func AddFuseCard(x: Float, weaponIndex: Int32, label: String, labelColor: HDRColor, frameColor: HDRColor, nameColor: HDRColor, element: Int32, bonus: Float, level: Int32) -> ref<inkCanvas> {
         let card: ref<inkCanvas> = new inkCanvas();
         card.SetAnchor(inkEAnchor.TopLeft);
@@ -2953,7 +2717,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         return card;
     }
 
-    // Rehace el contenido de la capa (nada interactivo) y pone al dia los botones fijos.
     private func RefreshFusion() {
         let content: ref<inkCanvas> = this.m_fContent;
         content.RemoveAllChildren();
@@ -2979,7 +2742,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
             let copyElement: Int32 = this.m_rewards.GetOwnedElement(copy);
             let copyBonus: Float = this.m_rewards.GetOwnedBonusF(copy);
             let copyLevel: Int32 = this.m_rewards.GetOwnedLevel(copy);
-            // Elementos entre los que se elige: dos si son distintos, uno si coinciden.
             if mainElement >= 0 {
                 ArrayPush(this.m_fChoices, mainElement);
             }
@@ -2993,14 +2755,12 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
             let newBonus: Float = this.m_rewards.FusedBonus(mainBonus, copyBonus);
             let newLevel: Int32 = this.m_rewards.FusedLevel(mainLevel, copyLevel);
 
-            // Tu arma + Copia que se destruye = Resultado.
             this.AddFuseCard(80.0, this.m_fMain, this.T("GR-MenuAugYours"), this.Grey(), this.Gold(), this.Gold(), mainElement, mainBonus, mainLevel);
             this.PlaceText(content, "+", 120, this.Dim(), n"Bold", 952.0, 545.0);
             this.AddFuseCard(1060.0, copy, this.T("GR-MenuAugCopy"), this.Red(), this.Dim(), this.Light(), copyElement, copyBonus, copyLevel);
             this.PlaceText(content, "=", 120, this.Dim(), n"Bold", 1932.0, 545.0);
             this.AddFuseCard(2040.0, this.m_fMain, this.T("GR-MenuAugResult"), this.Cyan(), this.Cyan(), this.Gold(), this.FusionKeep(), newBonus, newLevel);
             if copies > 1 {
-                // "2/3" entre las dos flechas de la tarjeta de la copia.
                 let counter: ref<inkText> = this.PlaceText(content, IntToString(this.m_fCopy + 1) + "/" + IntToString(copies), 30, this.Grey(), n"Bold", 1718.0, 326.0);
                 counter.SetAnchorPoint(new Vector2(0.5, 0.0));
             }
@@ -3015,7 +2775,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
             levelMath = StrReplace(levelMath, "{to}", this.Roman(newLevel));
             this.PlaceText(content, bonusMath + "   ·   " + levelMath, 34, this.Grey(), n"Medium", 80.0, 1110.0);
         } else {
-            // Despues de fusionar: el arma como quedo, con su sello, y cuantas copias quedan.
             let result: ref<inkCanvas> = this.AddFuseCard(80.0, this.m_fMain, this.T("GR-MenuAugResult"), this.Cyan(), this.Cyan(), this.Gold(), mainElement, mainBonus, mainLevel);
             if this.m_fDone {
                 let stamp: ref<inkCompoundWidget> = this.NewTag(this.T("GR-MenuAugStamp"), 34, this.Gold());
@@ -3039,13 +2798,11 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
             leftText.Reparent(content);
         }
 
-        // Flechas: solo con varias copias; apagadas en los extremos.
         let nav: Bool = cards && copies > 1;
         let prevColor: HDRColor = this.m_fCopy > 0 ? this.Cyan() : this.Empty();
         let nextColor: HDRColor = this.m_fCopy < copies - 1 ? this.Cyan() : this.Empty();
         this.StyleFusionButton(0, nav, "<", prevColor, prevColor);
         this.StyleFusionButton(1, nav, ">", nextColor, nextColor);
-        // Elemento que queda: el elegido con marco cian.
         let keep: Int32 = this.FusionKeep();
         let c: Int32 = 0;
         while c < 2 {
@@ -3066,7 +2823,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         }
     }
 
-    // Fusiona la copia elegida. Lo llaman el "mantener presionado" y, de respaldo, el segundo clic.
     private func DoFuse() {
         if !this.m_fOpen || this.m_fDone || this.m_fCopy < 0 || this.m_fCopy >= ArraySize(this.m_fCopies) {
             return;
@@ -3075,7 +2831,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         let fused: Int32 = this.m_rewards.GetFusedIndex();
         this.m_fConfirm = false;
         if !ok || fused < 0 {
-            // No se pudo (el motivo queda en el log): la foto ya no valia. Se rehace y se vuelve al arsenal.
             this.m_rewards.Snapshot();
             this.CloseFusion();
             this.m_selWeapon = -1;
@@ -3083,7 +2838,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
             this.BringToFront();
             return;
         }
-        // Fuse rehizo la foto: los indices cambiaron.
         let copies: array<Int32> = this.FusableCopies(fused);
         this.m_fMain = fused;
         this.m_fCopies = copies;
@@ -3103,7 +2857,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         }
         let progress: Float = evt.GetHoldProgress();
         if progress > 0.0 {
-            // El juego si manda el progreso: el respaldo de dos clics ya no hace falta.
             this.m_fHoldSeen = true;
             if this.m_fConfirm {
                 this.m_fConfirm = false;
@@ -3121,7 +2874,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         this.SetFuseProgress(0.0);
     }
 
-    // Clic en un boton de la capa ("gr_fuse_N").
     protected cb func OnGRFusionClick(evt: ref<inkPointerEvent>) -> Bool {
         if !evt.IsAction(n"click") || !this.m_fOpen {
             return false;
@@ -3136,7 +2888,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
             i += 1;
         }
         if index == 5 {
-            // Volver; despues de fusionar, si quedan copias, seguir con otra.
             if this.m_fDone && ArraySize(this.m_fCopies) > 0 {
                 this.m_fDone = false;
                 this.m_fCopy = 0;
@@ -3173,8 +2924,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
             this.PlaySound(n"Button", n"OnPress");
             return true;
         }
-        // Boton de fusionar: al soltar se vacia el relleno. Si el juego manda el progreso de "mantener", fusiona
-        // OnGRFuseHold; si nunca lo mando, el respaldo son dos clics (el primero pide confirmar).
         this.SetFuseProgress(0.0);
         if this.m_fHoldSeen {
             return true;
@@ -3248,7 +2997,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         }
         let target: CName = evt.GetCurrentTarget().GetName();
         let gangs: array<String> = IsDefined(this.m_data) ? this.m_data.GetGangs() : [];
-        // En Arsenal las pestanas son las 9 bandas fijas y la pagina es la suya.
         let arsenalGangs: array<String> = this.ArsenalGangs();
         let count: Int32 = this.m_view == 2 ? ArraySize(arsenalGangs) : ArraySize(gangs);
         let page: Int32 = this.m_view == 2 ? this.m_arsenalPage : this.m_page;
@@ -3263,8 +3011,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         return false;
     }
 
-    // Intel de la banda, arriba a la derecha del arbol (entre el Jefe y el panel de detalle): titulo, barra de 0 a 100 %
-    // y el numero; al 100 %, "GUARIDA LOCALIZADA" en dorado. Con "Debug log" activado, clic = +25 % (desarrollo).
     private func AddIntelBar(gangKey: String) {
         let intel: ref<GRIntelSystem> = GRIntelSystem.Get(this.GetPlayerControlledObject().GetGame());
         this.m_intelGang = gangKey;
@@ -3305,7 +3051,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         this.m_intelLocated.SetVisible(located);
     }
 
-    // Desarrollo: con "Debug log" activado en los ajustes, clic en la barra = +25 % de intel a esta banda.
     protected cb func OnGRIntelClick(evt: ref<inkPointerEvent>) -> Bool {
         if !evt.IsAction(n"click") {
             return false;
@@ -3345,8 +3090,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         return false;
     }
 
-    // ESC: con la capa de Aumento abierta la cierra y el menu sigue abierto; si no, lo de siempre (la clase base
-    // cierra el menu). Mismo patron que la pantalla de fabricacion del juego.
     protected cb func OnBack(userData: ref<IScriptable>) -> Bool {
         if this.m_fOpen {
             this.CloseFusion();
@@ -3356,11 +3099,9 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
     }
 
     protected cb func OnGRGlobalInput(evt: ref<inkPointerEvent>) -> Bool {
-        // Con la capa de Aumento abierta no se cambia de vista ni de banda.
         if evt.IsHandled() || this.m_fOpen {
             return false;
         }
-        // TAB (sort_list, como "Ordenar" en el Diario): bandas -> territorio -> arsenal.
         if evt.IsAction(n"sort_list") {
             this.ToggleView();
             evt.Handle();
@@ -3380,9 +3121,6 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
     }
 }
 
-// -----------------------------------------------------------------------------
-// Registro de la pantalla en el menu del juego (igual que Dark Future)
-// -----------------------------------------------------------------------------
 class GRInsertNemesisMenu extends ScriptableService {
     private cb func OnLoad() {
         GameInstance.GetCallbackSystem()
@@ -3402,9 +3140,6 @@ class GRInsertNemesisMenu extends ScriptableService {
     }
 }
 
-// -----------------------------------------------------------------------------
-// Boton en el menu principal: el boton del juego, bajo Personaje / Estadisticas
-// -----------------------------------------------------------------------------
 @wrapMethod(MenuHubLogicController)
 protected cb func OnInitialize() -> Bool {
     let result: Bool = wrappedMethod();
@@ -3425,7 +3160,6 @@ private final func GRAddNemesisButton() {
     }
     let button: ref<inkWidget> = this.SpawnFromLocal(container, n"menu_button");
     button.SetName(n"GangRetaliation_Nemesis");
-    // Dark Future pone su boton a 500 (670 con StealthRunner); este va justo debajo.
     let top: Float = 500.0;
     if GRHasDarkFuture() {
         top += 170.0;
@@ -3439,7 +3173,6 @@ private final func GRAddNemesisButton() {
     controller.Init(GRNemesisMenuItem(GetGameInstance()));
 }
 
-// Datos de la pantalla Nemesis para el boton del hub.
 public func GRNemesisMenuItem(gi: GameInstance) -> MenuData {
     let data: MenuData;
     data.disabled = false;
@@ -3451,30 +3184,18 @@ public func GRNemesisMenuItem(gi: GameInstance) -> MenuData {
     return data;
 }
 
-// -----------------------------------------------------------------------------
-// Cambio de pantalla dentro del hub, sin cerrarlo
-// -----------------------------------------------------------------------------
-// Una pantalla del hub pide el cambio con dispatcher.SpawnEvent(n"<evento>"); el evento llega al escenario del hub
-// como una llamada al metodo de ese nombre, y OnOpenMenu cierra la pantalla actual y abre la pedida. Los nombres
-// llevan "GangRetaliation" entero: otros mods (History) agregan sus propios metodos a MenuScenario_HubMenu y dos
-// @addMethod con el mismo nombre no compilan.
 
-// Abre la pantalla Nemesis. Lo usa GRMenuData.OpenView; un add-on tambien puede lanzar el evento con su dispatcher.
 @addMethod(MenuScenario_HubMenu)
 protected cb func OnGangRetaliationApiOpenView(userData: ref<IScriptable>) -> Bool {
     return this.OnOpenMenu(n"gangretaliation_nemesis_menu", null);
 }
 
-// Abre la pantalla del add-on Gang Retaliation History (el nombre del menu es el de su History.reds: si RedFalcon
-// lo cambia, hay que cambiarlo aqui). Sin el add-on no existe ni el metodo ni el rotulo que lanza el evento.
 @if(ModuleExists("GangRetaliationHistory"))
 @addMethod(MenuScenario_HubMenu)
 protected cb func OnGangRetaliationOpenHistory(userData: ref<IScriptable>) -> Bool {
     return this.OnOpenMenu(n"gangretaliationhistory_history_menu", null);
 }
 
-// Dispatcher que gameuiMenuGameController guarda en su OnSetMenuEventDispatcher (campo privado de la clase base):
-// con el, GRMenuData.OpenView lanza el evento desde el controlador de otro mod.
 @addMethod(gameuiMenuGameController)
 public final func GangRetaliationGetDispatcher() -> wref<inkMenuEventDispatcher> {
     return this.m_baseEventDispatcher;

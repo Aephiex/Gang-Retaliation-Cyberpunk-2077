@@ -17,7 +17,6 @@ public class GRSpawner extends ScriptableSystem {
     private let m_sides: array<Int32>;
     private let m_spawnSide: Int32;
     private let m_raidMode: Bool;
-    // Guarida: los NPCs esperan en su puesto (hostiles, pero sin saber donde esta V). GRStronghold decide el fin.
     private let m_strongholdMode: Bool;
     private let m_raidHitGang: Bool;
     private let m_raidHitPolice: Bool;
@@ -26,10 +25,7 @@ public class GRSpawner extends ScriptableSystem {
     private let m_policeImmune: Bool;
     private let m_immuneRaidEnd: Float;
     private let m_raidPoliceOnV: Bool;
-    // Los que hacen la redada (bando 1: NCPD, o Barghest en Dogtown). No se borra al terminar la redada:
-    // siguen contando mientras se van como sobrantes (ver IsRaidForce). Se reinicia en la redada siguiente.
     private let m_raidForceIDs: array<EntityID>;
-    // Tope de lineas "Modo dios quitado" por sesion (StripGodMode corre tambien en el Tick).
     private let m_godModeLogs: Int32;
 
     private let m_deaths: array<Int32>;
@@ -48,7 +44,6 @@ public class GRSpawner extends ScriptableSystem {
     private let m_ambushSawCombat: Bool;
     private let m_ambushCalmSince: Float;
 
-    // Reintentos de hostilidad (Nemesis que aparecen pasivos) y barra de jefe a vigilar.
     private let m_provokeAmbush: Float;
     private let m_provokeAt: Float;
     private let m_provokeCount: Int32;
@@ -62,35 +57,25 @@ public class GRSpawner extends ScriptableSystem {
 
     private let m_spawnPositions: array<Vector4>;
 
-    // Emboscada en vehiculo: 0 = a pie, 1 = esperando que carguen, 2 = montados, 3 = conduciendo, 4 = bajados.
     private let m_vehicleID: EntityID;
     private let m_vehicleState: Int32;
     private let m_vehicleStateTime: Float;
 
     private let m_spotFound: Bool;
-    // Por que fallo la ultima busqueda de sitio (para el log): alcanzable, cielo abierto, despejado, a la vista.
     private let m_spotFails: array<Int32>;
-    // Busqueda junto al trafico (log): autos cargados, fuera de rango, sin camino, sin hueco, a la vista.
     private let m_trafficFails: array<Int32>;
 
-    // Lo que queda de una emboscada, redada o escaramuza ya terminada. Antes se borraba todo de golpe
-    // delante de V (vivos, cadaveres y auto). Ahora los vivos se van y cada uno se borra cuando V no lo ve.
     private let m_leftIDs: array<EntityID>;
     private let m_leftNemesis: array<Int32>;
     private let m_leftSince: array<Float>;
     private let m_leftSent: array<Bool>;
-    // Nombre completo del Nemesis (escaner y barra de jefe) mientras se va.
     private let m_leftNames: array<String>;
 
-    // Ultimo Nemesis-maquina rechazado y cuando: la emboscada anunciada reintenta cada 5 s y llenaba el log.
     private let m_machineLoggedId: Int32;
     private let m_machineLoggedAt: Float;
 
-    // Guarida: seguimiento de cada guardia (percepcion y diagnostico, ver TickGuards). Se vacia en ResetEncounter.
     private let m_watch: array<ref<GRGuardWatch>>;
-    // Cuenta del tick (KeepSensesAwake): sensor apagado, rastreador apagado, no hostil, motor sin detectar a V.
     private let m_wakeCounts: array<Int32>;
-    // Tope de lineas "percepcion revisada" por guarida.
     private let m_wakeLogs: Int32;
 
     public static func Get(gi: GameInstance) -> ref<GRSpawner> {
@@ -133,12 +118,10 @@ public class GRSpawner extends ScriptableSystem {
         if index >= 0 {
             return this.m_nemesisIDs[index];
         }
-        // Un Nemesis que se esta yendo sigue teniendo sus rasgos y su causa de muerte.
         let left: Int32 = this.LeftoverIndex(id);
         return left >= 0 ? this.m_leftNemesis[left] : 0;
     }
 
-    // Rango del Nemesis de esa entidad (1 Soldado, 2 Teniente, 3 Jefe), sacado de su nombre con rango; 0 = no es Nemesis.
     public func GetNemesisRank(id: EntityID) -> Int32 {
         let index: Int32 = this.IndexOf(id);
         if index >= 0 && index < ArraySize(this.m_speakers) {
@@ -151,7 +134,6 @@ public class GRSpawner extends ScriptableSystem {
         return 0;
     }
 
-    // Nombre con rango del Nemesis de esa entidad ("Teniente Rex"), o "" si no es Nemesis. Para el log.
     public func GetNemesisLabel(id: EntityID) -> String {
         let index: Int32 = this.IndexOf(id);
         if index >= 0 && index < ArraySize(this.m_speakers) {
@@ -164,7 +146,6 @@ public class GRSpawner extends ScriptableSystem {
         return "";
     }
 
-    // Incluye a los sobrantes: uno que se esta yendo sigue en el mundo y no puede aparecer otra copia.
     public func IsNemesisSpawned(nemesisId: Int32) -> Bool {
         if nemesisId <= 0 {
             return false;
@@ -172,7 +153,6 @@ public class GRSpawner extends ScriptableSystem {
         return ArrayContains(this.m_nemesisIDs, nemesisId) || ArrayContains(this.m_leftNemesis, nemesisId);
     }
 
-    // Hay algo del mod en el mundo (emboscada activa o sobrantes). Lo usa GRTraits para registrar golpes.
     public func HasOwnSpawns() -> Bool {
         return ArraySize(this.m_entityIDs) > 0 || ArraySize(this.m_leftIDs) > 0;
     }
@@ -192,8 +172,6 @@ public class GRSpawner extends ScriptableSystem {
 
     private func IsReachable(player: ref<PlayerPuppet>, pos: Vector4, distance: Float) -> Bool {
         let target: Vector4 = player.GetWorldPosition();
-        // Poca diferencia de altura y camino corto: en edificios de varios pisos evita puntos de otro
-        // piso o detras de paredes (habitaciones cerradas del megaedificio).
         if Vector4.IsZero(pos) || AbsF(pos.Z - target.Z) > 2.0 {
             return false;
         }
@@ -206,8 +184,6 @@ public class GRSpawner extends ScriptableSystem {
         return Vector4.Distance(last, target) < 3.0 && path.CalculateLength() < distance * 1.8 + 5.0;
     }
 
-    // Punto metido en una pared: rayos cortos a la altura del pecho chocan en casi todas las direcciones.
-    // Publica: la usa tambien el teletransporte de la huida con flash (GRSafeTeleportSpot, Detection.reds).
     public func IsClearSpot(pos: Vector4) -> Bool {
         let spatial: ref<SpatialQueriesSystem> = GameInstance.GetSpatialQueriesSystem(this.GetGameInstance());
         let chest: Vector4 = pos + new Vector4(0.0, 0.0, 1.2, 0.0);
@@ -222,14 +198,11 @@ public class GRSpawner extends ScriptableSystem {
         return hits < 3;
     }
 
-    // Solo a cielo abierto: en un megaedificio o un interior el piso de arriba tapa el cielo. Si V esta bajo
-    // techo no hay punto valido y la emboscada anunciada espera a que salga a la calle.
     private func IsOpenSky(pos: Vector4) -> Bool {
         let result: TraceResult;
         return !GameInstance.GetSpatialQueriesSystem(this.GetGameInstance()).SyncRaycastByCollisionGroup(pos + new Vector4(0.0, 0.0, 2.0, 0.0), pos + new Vector4(0.0, 0.0, 40.0, 0.0), n"Static", result, true, false);
     }
 
-    // Los dos puntos se conectan a pie (los dos bandos de una redada pueden llegar a pelear).
     private func IsConnected(from: Vector4, to: Vector4) -> Bool {
         let path: ref<NavigationPath> = GameInstance.GetNavigationSystem(this.GetGameInstance()).CalculatePathOnlyHumanNavmesh(from, to, NavGenAgentSize.Human, 1.0);
         if !IsDefined(path) || ArraySize(path.path) < 2 {
@@ -239,16 +212,12 @@ public class GRSpawner extends ScriptableSystem {
         return Vector4.Distance(last, to) < 3.0 && path.CalculateLength() < Vector4.Distance(from, to) * 2.0 + 10.0;
     }
 
-    // V ve el punto: ninguna pared entre sus ojos y el pecho del NPC. Unica copia: la usan la huida
-    // (GRDetection.PlayerSees), los sobrantes y la busqueda de sitio.
     public func HasLineOfSight(player: ref<PlayerPuppet>, pos: Vector4) -> Bool {
         let result: TraceResult;
         let eyes: Vector4 = player.GetWorldPosition() + new Vector4(0.0, 0.0, 1.7, 0.0);
         return !GameInstance.GetSpatialQueriesSystem(this.GetGameInstance()).SyncRaycastByCollisionGroup(eyes, pos + new Vector4(0.0, 0.0, 1.5, 0.0), n"Static", result, true, false);
     }
 
-    // Oculto para V (regla de They Will Remember): fuera del cono de 70 grados delante de V y sin linea
-    // de vista ni al pecho ni a la cabeza. Con solo la pared, V lo veia al girar o por un hueco.
     private func IsHiddenFromPlayer(player: ref<PlayerPuppet>, pos: Vector4) -> Bool {
         let toPos: Vector4 = pos - player.GetWorldPosition();
         toPos.Z = 0.0;
@@ -266,8 +235,6 @@ public class GRSpawner extends ScriptableSystem {
         return this.FindSpot(player, angle, distance, 120.0, 0.45, false);
     }
 
-    // Busca un punto a 'distance' en la direccion 'angle' (0 = delante de V), desviandose como mucho
-    // maxOffset grados y acercandose como mucho hasta distance * minScale. hidden: fuera de la vista de V.
     private func FindSpot(player: ref<PlayerPuppet>, angle: Float, distance: Float, maxOffset: Float, minScale: Float, hidden: Bool) -> Vector4 {
         let offsets: array<Float> = [0.0, 15.0, -15.0, 30.0, -30.0, 45.0, -45.0, 60.0, -60.0, 80.0, -80.0, 120.0, -120.0];
         let scales: array<Float> = [1.0, 0.85, 0.7, 0.45];
@@ -303,9 +270,6 @@ public class GRSpawner extends ScriptableSystem {
         return player.GetWorldPosition();
     }
 
-    // Emboscada en auto al estilo de They Will Remember: se genera pegado a un auto que ya esta en la calle
-    // (siempre en calzada y con la orientacion del carril), que apunte hacia V y con camino a pie hasta V.
-    // Distancias de TWR para V a pie: 90-120 m mas o menos delante, o 50-80 m al costado/detras.
     private func FindTrafficSpot(player: ref<PlayerPuppet>, out spawnPos: Vector4, out spawnOri: Quaternion) -> Bool {
         let traffic: ref<GRTraffic> = GRTraffic.Get(this.GetGameInstance());
         if !IsDefined(traffic) {
@@ -328,12 +292,10 @@ public class GRSpawner extends ScriptableSystem {
             let fovAngleEnemy: Float = Vector4.GetAngleBetween(vehicle.GetWorldForward(), Vector4.Normalize(playerPos - pos));
             let inBand: Bool = (dist > 90.0 && dist < 120.0 && fovAngle < 70.0 && fovAngleEnemy < 60.0)
                 || (dist > 50.0 && dist < 80.0 && fovAngle > 70.0 && fovAngleEnemy < 60.0);
-            // Fuera: el auto de V, autos en otro nivel (puentes, AV) y los nuestros.
             let own: Bool = vehicle.GetEntityID() == this.m_vehicleID || (EntityID.IsDefined(playerVehicleID) && vehicle.GetEntityID() == playerVehicleID);
             if !inBand || own || AbsF(pos.Z - playerPos.Z) > 6.0 {
                 this.m_trafficFails[1] += 1;
             } else {
-                // Cada camino cuesta: como mucho 8 por intento.
                 if checkedPaths >= 8 {
                     return false;
                 }
@@ -346,7 +308,6 @@ public class GRSpawner extends ScriptableSystem {
                     if !this.HasSpaceForCar(vehicle, spawnPos) {
                         this.m_trafficFails[3] += 1;
                     } else {
-                        // Cerca y a la vista de V se veria aparecer de la nada.
                         if dist < 80.0 && this.HasLineOfSight(player, spawnPos) {
                             this.m_trafficFails[4] += 1;
                         } else {
@@ -364,8 +325,6 @@ public class GRSpawner extends ScriptableSystem {
         return false;
     }
 
-    // Hueco de un auto (caja de 5 x 8 x 2 m) a 10 m delante o detras del auto del trafico, sin chocar
-    // con paredes ni con otros vehiculos.
     private func HasSpaceForCar(vehicle: ref<VehicleObject>, out spawnPos: Vector4) -> Bool {
         let spatial: ref<SpatialQueriesSystem> = GameInstance.GetSpatialQueriesSystem(this.GetGameInstance());
         let box: Vector4 = new Vector4(2.5, 4.0, 1.0, 0.0);
@@ -389,7 +348,6 @@ public class GRSpawner extends ScriptableSystem {
         return false;
     }
 
-    // Escolta junto al lider (el grupo llega junto), ajustada al navmesh; si no hay sitio, en el del lider.
     private func EscortSpot(leader: Vector4, index: Int32) -> Vector4 {
         let angle: Float = Cast<Float>(index) * 2.4 + RandRangeF(-0.4, 0.4);
         let radius: Float = RandRangeF(2.5, 5.0);
@@ -508,16 +466,10 @@ public class GRSpawner extends ScriptableSystem {
         GRLog("Nemesis #" + IntToString(nemesisId) + " muerto (" + kind + ", " + cause + ")");
     }
 
-    // V como responsable de una muerte o un derribo sin golpe suyo registrado. El juego mata a los pasajeros
-    // de un auto que explota con el estado ForceKill (no hay golpe) y los derribos por agarre no pasan por
-    // el sistema de dano. Se mira a quien anota el juego: GetMyKiller (instigador del evento de muerte o del
-    // derribo letal) y quien aplico el estado que lo mato o lo dejo inconsciente. Un vehiculo destruido
-    // cuenta para V si V lo dano. Siempre desde el hilo principal.
     private func KilledByPlayer(npc: ref<NPCPuppet>) -> Bool {
         if !IsDefined(npc) {
             return false;
         }
-        // Derribo por agarre: sigue montado en V (ranura "grapple") mientras dura la animacion.
         if ScriptedPuppet.IsBeingGrappled(npc) {
             return true;
         }
@@ -599,7 +551,6 @@ public class GRSpawner extends ScriptableSystem {
                 if IsDefined(npc) && (npc.IsDead() || ScriptedPuppet.IsDefeated(npc) || ScriptedPuppet.IsUnconscious(npc)) {
                     this.MarkDead(this.m_entityIDs[i]);
                 } else {
-                    // Respaldo por si el modo dios del record llego despues del evento Spawned.
                     if IsDefined(npc) {
                         this.StripGodMode(i, npc, false);
                     }
@@ -626,9 +577,6 @@ public class GRSpawner extends ScriptableSystem {
         }
     }
 
-    // Nemesis guardado con un record de drone/mech/robot (las versiones hasta 1.3.x los ascendian): no se
-    // genera. Lo consultan todos los caminos que generan un Nemesis por su record. El aviso sale como mucho
-    // una vez por minuto por Nemesis.
     private func IsMachineNemesis(nemesisId: Int32, recordID: String, what: String) -> Bool {
         if !GRDetection.IsMachineRecordID(recordID) {
             return false;
@@ -642,7 +590,6 @@ public class GRSpawner extends ScriptableSystem {
         return true;
     }
 
-    // Para CET: al cargar la campana saca a los Nemesis guardados cuyo record es una maquina.
     public func IsMachineRecordID(recordID: String) -> Bool {
         return GRDetection.IsMachineRecordID(recordID);
     }
@@ -696,8 +643,6 @@ public class GRSpawner extends ScriptableSystem {
         return "";
     }
 
-    // V nadando o buceando (cualquier estado de nado distinto del normal: superficie, buceo, saliendo del
-    // agua). Lo mismo que lee PlayerPuppet.IsSwimming del juego. Reporte: emboscada en el buceo con Judy.
     public func IsPlayerSwimming() -> Bool {
         let player: ref<PlayerPuppet> = GetPlayer(this.GetGameInstance());
         if !IsDefined(player) {
@@ -707,15 +652,11 @@ public class GRSpawner extends ScriptableSystem {
         return swimming != EnumInt(gamePSMSwimming.Default);
     }
 
-    // V a menos de 150 m (en horizontal) de algun punto del objetivo que esta siguiendo, sea del tipo de
-    // mision que sea: ahi una emboscada cae en medio de la mision. Sin objetivo seguido o sin punto en el
-    // mapa no bloquea. Usa la distancia cacheada de GetTrackedObjectiveDistance.
     public func IsQuestObjectiveNearby() -> Bool {
         let distance: Float = this.GetTrackedObjectiveDistance();
         return distance >= 0.0 && distance < 150.0;
     }
 
-    // Para CET (Integrations.reds): escuadron de TWR/DD cerca ("TWR|Banda") y multiplicador de emboscadas.
     public func GetExternalSquad() -> String {
         return GRIntegrations.GetExternalSquad(this.GetGameInstance());
     }
@@ -724,7 +665,6 @@ public class GRSpawner extends ScriptableSystem {
         return GRIntegrations.GetHeatFactor(this.GetGameInstance(), this.GetDistrictGangs());
     }
 
-    // Panel dev: debug de Drug Dealer. 0 capturar zona al azar, 1 disputar la actual, 2 +25 terror, 3 soltar zonas.
     public func DebugDD(action: Int32) -> String {
         switch action {
             case 0: return GRIntegrations.DebugCaptureRandomTurf();
@@ -735,7 +675,6 @@ public class GRSpawner extends ScriptableSystem {
         }
     }
 
-    // Panel dev: 0 = simular venganza de TWR, 1 = simular perdon pagado y rechazado.
     public func DebugTWR(action: Int32) -> String {
         let watch: ref<GRTWRWatch> = GRTWRWatch.Get(this.GetGameInstance());
         return IsDefined(watch) ? watch.Debug(action) : "TWR watch not ready";
@@ -746,13 +685,11 @@ public class GRSpawner extends ScriptableSystem {
         return GRIntegrations.GetDDDebugInfo(IsDefined(settings) ? settings.fleeHealthPercent : 35);
     }
 
-    // They Will Remember manda sus propias venganzas (tag TheyWillRemember.Squad): no sumar otra encima.
     public static func IsTWRSquadActive() -> Bool {
         let des: ref<DynamicEntitySystem> = GameInstance.GetDynamicEntitySystem();
         if !IsDefined(des) {
             return false;
         }
-        // Solo miembros vivos: TWR no borra los cadaveres mientras V este a menos de 80 m.
         let squad: array<ref<Entity>> = des.GetTagged(n"TheyWillRemember.Squad");
         for member in squad {
             let npc: ref<ScriptedPuppet> = member as ScriptedPuppet;
@@ -763,7 +700,6 @@ public class GRSpawner extends ScriptableSystem {
         return false;
     }
 
-    // Tier de escena 2-5: V camina sin armas (departamento, escenas de mision). En la calle es 1.
     public func IsInScene() -> Bool {
         let player: ref<PlayerPuppet> = GetPlayer(this.GetGameInstance());
         if !IsDefined(player) {
@@ -773,11 +709,6 @@ public class GRSpawner extends ScriptableSystem {
         return tier >= 2 && tier <= 5;
     }
 
-    // Distancia horizontal de V al punto mas cercano del objetivo seguido (-1 = sin punto en el mapa).
-    // Igual que el mapa del juego (worldMap.swift): solo si la entrada seguida es un objetivo, y con su hash.
-    // GetQuestMappinPosition NO va aca: espera el hash de un mappin, no de un objetivo (sospecha del crash
-    // del 31/10). Se recalcula como mucho una vez cada 2 s (el panel CET lo pide en cada frame y el bloqueo
-    // de emboscadas en cada tick). m_objectivePins / m_objectiveSource quedan para el panel dev.
     public func GetTrackedObjectiveDistance() -> Float {
         let now: Float = this.Now();
         if this.m_objectiveCheckedAt > 0.0 && now >= this.m_objectiveCheckedAt && now - this.m_objectiveCheckedAt < 2.0 {
@@ -820,7 +751,6 @@ public class GRSpawner extends ScriptableSystem {
         return nearest;
     }
 
-    // Texto para el panel dev: tipo de mision seguida, distancia y de donde salio el punto.
     public func GetTrackedObjectiveInfo() -> String {
         let quest: wref<JournalQuest> = this.GetTrackedQuest();
         let questType: String = IsDefined(quest) ? EnumValueToString("gameJournalQuestType", Cast<Int64>(EnumInt(quest.GetType()))) : "-";
@@ -829,8 +759,6 @@ public class GRSpawner extends ScriptableSystem {
         return "objective: " + questType + ", " + where + " (" + IntToString(this.m_objectivePins) + " pins, " + this.m_objectiveSource + ")";
     }
 
-    // Mision de historia seguida y V cerca de su objetivo: ahi una huida puede dejar la mision sin terminar.
-    // Lejos del objetivo, o sin punto en el mapa, no bloquea (casi todos siguen siempre alguna mision).
     public func IsStoryQuestNearby() -> Bool {
         if !this.IsStoryQuestTracked() {
             return false;
@@ -839,7 +767,6 @@ public class GRSpawner extends ScriptableSystem {
         return distance >= 0.0 && distance < 150.0;
     }
 
-    // Mision de historia seguida (no gigs).
     public func IsStoryQuestTracked() -> Bool {
         let quest: wref<JournalQuest> = this.GetTrackedQuest();
         if !IsDefined(quest) {
@@ -959,8 +886,6 @@ public class GRSpawner extends ScriptableSystem {
         return true;
     }
 
-    // Llegan en un vehiculo de la banda: aparece fuera de la vista a ~70 m detras de V, conducen hasta V y
-    // se bajan a pelear. Los comandos de IA se mandan desde el tick (nunca desde eventos).
     public func StartVehicleAmbush(nemesisId: Int32, recordID: String, appearance: String, escortRecords: String, line: String, speaker: String, vehicleRecord: String) -> Bool {
         let blocker: String = this.GetAmbushBlocker();
         if StrLen(blocker) > 0 || this.IsNemesisSpawned(nemesisId) {
@@ -977,14 +902,12 @@ public class GRSpawner extends ScriptableSystem {
         let player: ref<PlayerPuppet> = GetPlayer(this.GetGameInstance());
         let pos: Vector4;
         let orientation: Quaternion;
-        // Primero junto a un auto del trafico (en la calle, mirando como el carril).
         if this.FindTrafficSpot(player, pos, orientation) {
             GRLog("Vehiculo: junto a un auto del trafico a " + FloatToString(Vector4.Distance(pos, player.GetWorldPosition())) + " m");
         } else {
             GRLog("Vehiculo: sin auto del trafico util (cargados=" + IntToString(this.m_trafficFails[0])
                 + ", fuera de rango=" + IntToString(this.m_trafficFails[1]) + ", sin camino=" + IntToString(this.m_trafficFails[2])
                 + ", sin hueco=" + IntToString(this.m_trafficFails[3]) + ", a la vista=" + IntToString(this.m_trafficFails[4]) + ")");
-            // Si no: detras de V; si no hay sitio, cualquier lado salvo delante, y mas cerca.
             pos = this.FindSpot(player, RandRangeF(165.0, 195.0), 70.0, 120.0, 0.45, true);
             if !this.m_spotFound {
                 GRLog("Vehiculo: sin sitio alrededor de V (descartes: no alcanzable=" + IntToString(this.m_spotFails[0])
@@ -1019,7 +942,6 @@ public class GRSpawner extends ScriptableSystem {
         if StrLen(escortRecords) > 0 {
             escorts = StrSplit(escortRecords, ",");
         }
-        // Como mucho 3 escoltas: el vehiculo tiene 4 asientos.
         let i: Int32 = 0;
         while i < ArraySize(escorts) && i < 3 {
             this.SpawnAt(0, escorts[i], "", this.EscortSpot(pos, i), spec.orientation, "", "");
@@ -1091,7 +1013,6 @@ public class GRSpawner extends ScriptableSystem {
                     let drive: ref<AIVehicleDriveToPointAutonomousCommand> = new AIVehicleDriveToPointAutonomousCommand();
                     drive.targetPosition = Vector4.Vector4To3(player.GetWorldPosition());
                     drive.minimumDistanceToTarget = 10.0;
-                    // TWR usa 80/10 para sus refuerzos; con 14 llegaban tarde y V ya se habia ido.
                     drive.maxSpeed = 40.0;
                     drive.minSpeed = 10.0;
                     drive.clearTrafficOnPath = true;
@@ -1100,7 +1021,6 @@ public class GRSpawner extends ScriptableSystem {
                     let evt: ref<AICommandEvent> = new AICommandEvent();
                     evt.command = drive;
                     vehicle.QueueEvent(evt);
-                    // Si el auto se descarga y vuelve a cargar, retoma este comando (como TWR).
                     vehicle.GetAIComponent().SetInitCmd(drive);
                     GRLog("Vehiculo: conduciendo hacia V");
                 }
@@ -1122,7 +1042,6 @@ public class GRSpawner extends ScriptableSystem {
         this.m_vehicleStateTime = now;
     }
 
-    // Se bajan y atacan; desde aqui sigue como una emboscada normal (con chequeo de atasco).
     private func StartVehicleFight(player: ref<PlayerPuppet>, now: Float) {
         let i: Int32 = 0;
         while i < ArraySize(this.m_entityIDs) {
@@ -1169,14 +1088,11 @@ public class GRSpawner extends ScriptableSystem {
     }
 
     private func SpawnGroup(nemesisId: Int32, recordID: String, appearance: String, escortRecords: String, line: String, speaker: String, distance: Float) -> Bool {
-        // Emboscada a pie y refuerzo en gig pasan los dos por aca.
         if this.IsMachineNemesis(nemesisId, recordID, "A pie") {
             return false;
         }
         let player: ref<PlayerPuppet> = GetPlayer(this.GetGameInstance());
 
-        // Detras de V (arco de +-60 grados), sin acercarse a menos del 70% de la distancia: no aparecen
-        // delante ni encima. Si no hay sitio, la emboscada anunciada espera y reintenta.
         let angle: Float = RandRangeF(165.0, 195.0);
         let pos: Vector4 = this.FindSpot(player, angle, distance, 45.0, 0.7, false);
         if !this.m_spotFound {
@@ -1206,8 +1122,6 @@ public class GRSpawner extends ScriptableSystem {
         return true;
     }
 
-    // V en Dogtown: el distrito actual o alguno de arriba se llama "Dogtown..." (Dogtown, Dogtown_Akebono,
-    // Dogtown_Brooklyn...). La misma fuente que GetDistrictName y GRWar.GetCurrentDistrict.
     public func IsInDogtown() -> Bool {
         let player: ref<PlayerPuppet> = GetPlayer(this.GetGameInstance());
         if !IsDefined(player) || !IsDefined(player.GetPreventionSystem()) {
@@ -1229,14 +1143,10 @@ public class GRSpawner extends ScriptableSystem {
         return false;
     }
 
-    // Quien hace las redadas donde esta V: en Dogtown no entra la NCPD, manda Barghest. Lo lee CET para
-    // elegir a quien allanan y los textos.
     public func GetRaidForce() -> String {
         return this.IsInDogtown() ? "Barghest" : "NCPD";
     }
 
-    // Uno de los que hacen la redada (o la hicieron y se estan yendo). Lo usa GRTraits.HitSource: son
-    // amistosos con V, pero sus golpes no son de V.
     public func IsRaidForce(id: EntityID) -> Bool {
         let i: Int32 = 0;
         while i < ArraySize(this.m_raidForceIDs) {
@@ -1248,8 +1158,6 @@ public class GRSpawner extends ScriptableSystem {
         return false;
     }
 
-    // Soldados de Barghest para una redada en Dogtown: tantos como policias pidio CET (2 + rango), al
-    // azar entre los mismos 12 records que usan los escoltas de Barghest (modules/escorts.lua).
     private func BarghestRaiders(policeRecords: String) -> String {
         let pool: array<String> = [
             "Character.bou_kurtz_grunt1_ranged1_handgun_ma",
@@ -1285,8 +1193,6 @@ public class GRSpawner extends ScriptableSystem {
         return IsDefined(record) && IsDefined(record.Affiliation()) && Equals(record.Affiliation().Type(), gamedataAffiliation.Barghest);
     }
 
-    // policeRecords lo manda CET (policias de la NCPD). En Dogtown se ignora y vienen soldados de Barghest:
-    // mismo numero, mismo bando 1 (amistosos con V, hostiles al grupo del Nemesis).
     public func StartRaid(nemesisId: Int32, recordID: String, appearance: String, escortRecords: String, speaker: String, policeRecords: String) -> Bool {
         if StrLen(this.GetAmbushBlocker()) > 0 || this.IsNemesisSpawned(nemesisId) {
             return false;
@@ -1298,16 +1204,13 @@ public class GRSpawner extends ScriptableSystem {
         }
         let raiders: String = policeRecords;
         if Equals(force, "Barghest") {
-            // Barghest no allana a los suyos (CET ya elige a un Nemesis de otra banda).
             if this.IsBarghestRecord(recordID) {
                 GRLog(label + ": Nemesis #" + IntToString(nemesisId) + " es de Barghest, no se genera");
                 return false;
             }
             raiders = this.BarghestRaiders(policeRecords);
         }
-        // A ~55 m (minimo ~40) y fuera de la vista de V: se oye el tiroteo y V se acerca, no aparece de la nada.
         let player: ref<PlayerPuppet> = GetPlayer(this.GetGameInstance());
-        // Detras y a los costados primero; delante nunca (el cono de vista lo descarta igual).
         let angles: array<Float> = [180.0, 135.0, -135.0, 100.0, -100.0];
         for angle in angles {
             let posA: Vector4 = this.FindSpot(player, angle - 10.0, 55.0, 15.0, 0.75, true);
@@ -1363,8 +1266,6 @@ public class GRSpawner extends ScriptableSystem {
         let i: Int32 = 0;
         while i < ArraySize(list) {
             let raw: Vector4 = at + new Vector4(RandRangeF(-2.0, 2.0) + Cast<Float>(i) * 0.6, RandRangeF(-2.0, 2.0), 0.0, 0.0);
-            // Cada uno se revisa como el punto central: suelo del mismo piso, sin pared encima y oculto
-            // para V. Si falla, en el punto central (que ya paso esas pruebas).
             let pos: Vector4 = GameInstance.GetNavigationSystem(this.GetGameInstance()).GetNearestNavmeshPointBelowOnlyHumanNavmesh(raw + new Vector4(0.0, 0.0, 1.0, 0.0), 1.0, 5);
             if Vector4.IsZero(pos) || AbsF(pos.Z - at.Z) > 1.0 || !this.IsClearSpot(pos)
                     || (IsDefined(player) && !this.IsHiddenFromPlayer(player, pos)) {
@@ -1451,10 +1352,6 @@ public class GRSpawner extends ScriptableSystem {
         }
     }
 
-    // Como ProvokeIdle, pero entre bandos: la hostilidad de SetRaidHostility se pone al aparecer y, si la
-    // IA no estaba lista o el otro bando no habia cargado, policias y pandilleros se quedaban mirando.
-    // Cada 3 s (maximo 10 veces), a cada uno fuera de combate se le marca como amenaza el enemigo vivo
-    // mas cercano. Desde el tick, nunca desde eventos.
     private func ProvokeRaid(now: Float) {
         if this.m_provokeAmbush != this.m_ambushStart {
             this.m_provokeAmbush = this.m_ambushStart;
@@ -1537,7 +1434,6 @@ public class GRSpawner extends ScriptableSystem {
         return this.m_ambushActive && this.m_strongholdMode;
     }
 
-    // Puesto alrededor del centro de la guarida, ajustado al navmesh y en el mismo piso.
     public func PostSpot(center: Vector4, angle: Float, radius: Float) -> Vector4 {
         let raw: Vector4 = center + new Vector4(CosF(angle) * radius, SinF(angle) * radius, 1.0, 0.0);
         let pos: Vector4 = GameInstance.GetNavigationSystem(this.GetGameInstance()).GetNearestNavmeshPointBelowOnlyHumanNavmesh(raw, 2.0, 5);
@@ -1550,7 +1446,6 @@ public class GRSpawner extends ScriptableSystem {
         return pos;
     }
 
-    // Mirando hacia fuera de la guarida (vigilan los accesos).
     public func SpawnPosted(nemesisId: Int32, recordID: String, appearance: String, pos: Vector4, center: Vector4, speaker: String) -> Bool {
         let out: Vector4 = pos - center;
         if Vector4.Length(out) < 0.5 {
@@ -1560,10 +1455,6 @@ public class GRSpawner extends ScriptableSystem {
         return this.SpawnAt(nemesisId, recordID, appearance, pos, EulerAngles.ToQuat(Vector4.ToRotation(out)), "", speaker);
     }
 
-    // Suelo debajo del punto (desde 1 m arriba hasta 3 m abajo): colision estatica o terreno; se queda con el
-    // impacto mas alto. false = ahi abajo no hay colision cargada (o el punto esta en el aire).
-    // "World Static" es el preset con el que el juego busca el suelo (aiStatusEffectTask.swift:419); los grupos
-    // "Static" y "Terrain" van aparte por si el preset no cubre alguno (las Badlands son terreno).
     public func GroundBelow(pos: Vector4, out groundZ: Float) -> Bool {
         let spatial: ref<SpatialQueriesSystem> = GameInstance.GetSpatialQueriesSystem(this.GetGameInstance());
         let from: Vector4 = pos + new Vector4(0.0, 0.0, 1.0, 0.0);
@@ -1593,12 +1484,10 @@ public class GRSpawner extends ScriptableSystem {
         return found;
     }
 
-    // El impacto cae dentro del rayo (descarta resultados sin rellenar).
     private func IsGroundHit(z: Float, top: Float, bottom: Float) -> Bool {
         return z <= top + 0.1 && z >= bottom - 0.1;
     }
 
-    // V tiene el puesto delante (60 grados a cada lado) y sin pared en medio: no se genera a nadie en su cara.
     public func IsPostSeen(player: ref<PlayerPuppet>, pos: Vector4) -> Bool {
         let toPos: Vector4 = pos - player.GetWorldPosition();
         toPos.Z = 0.0;
@@ -1644,10 +1533,6 @@ public class GRSpawner extends ScriptableSystem {
         return "NEUTRAL";
     }
 
-    // Una linea con lo que hace falta para el bug de Nexus (guardias flotando y sin reaccionar): altura contra el
-    // suelo y estado de la IA y de los sentidos. En mayusculas, lo que esta mal.
-    // settled = false al aparecer: todavia no hubo evaluacion de V (detectaV no dice nada) y no se le pregunta
-    // IsActive/IsAggressive, que guardan su resultado en cache, antes de que el NPC termine de armarse.
     private func GuardStatus(npc: ref<ScriptedPuppet>, player: ref<PlayerPuppet>, settled: Bool) -> String {
         let pos: Vector4 = npc.GetWorldPosition();
         let groundZ: Float = 0.0;
@@ -1682,13 +1567,6 @@ public class GRSpawner extends ScriptableSystem {
         return text;
     }
 
-    // Percepcion de un guardia de guarida. Es hostil pero no recibe estimulo (asi se puede entrar en sigilo): que
-    // ataque depende de que su sensor detecte a V. El sensor solo cuenta a V si la ultima evaluacion
-    // (SenseComponent.ReevaluateDetectionOverwrite) dio que si, y esa evaluacion solo corre con ciertos eventos:
-    // si corrio al aparecer con el sensor todavia apagado (NPC lejos) o antes de ser hostil, V queda ignorado hasta
-    // que algo la dispare de nuevo (un golpe, por ejemplo: de ahi "no reaccionan hasta que V ataca a alguien").
-    // Aca se prende lo que este apagado y se pide la evaluacion otra vez. No mete a V en sus amenazas: no lo delata.
-    // Devuelve true si el motor todavia no esta detectando a V con este guardia.
     private func KeepSensesAwake(npc: ref<ScriptedPuppet>, player: ref<PlayerPuppet>) -> Bool {
         if ArraySize(this.m_wakeCounts) < 4 {
             this.m_wakeCounts = [0, 0, 0, 0];
@@ -1699,7 +1577,6 @@ public class GRSpawner extends ScriptableSystem {
         }
         let blind: Bool = false;
         if !senses.IsEnabled() {
-            // Igual que el juego con los civiles que se vuelven agresivos (reactionComponent.swift:2535).
             senses.IgnoreLODChange(true);
             senses.Toggle(true);
             this.m_wakeCounts[0] += 1;
@@ -1724,9 +1601,6 @@ public class GRSpawner extends ScriptableSystem {
         return blind;
     }
 
-    // Ultimo recurso: el motor lleva varios segundos sin detectar a V con este guardia aunque ya se le pidio. Si V
-    // esta delante de el, cerca y sin pared en medio, lo "ve" por script: se lo provoca igual que en una emboscada.
-    // De pie hasta 12 m; agachado hasta 5 m. No aplica a un guardia cegado ni con V invisible (camuflaje optico).
     private func ScriptSight(npc: ref<ScriptedPuppet>, player: ref<PlayerPuppet>, distance: Float) -> Bool {
         let crouched: Bool = player.GetPlayerStateMachineBlackboard().GetInt(GetAllBlackboardDefs().PlayerStateMachine.Locomotion) == EnumInt(gamePSMLocomotionStates.Crouch);
         if distance > (crouched ? 5.0 : 12.0) {
@@ -1749,12 +1623,6 @@ public class GRSpawner extends ScriptableSystem {
         return true;
     }
 
-    // Guarida, una vez por segundo (hilo principal), por cada guardia en pie que no este huyendo:
-    // - Percepcion (fuera de combate, V a menos de 90 m): KeepSensesAwake; si tras 3 s seguidos el motor sigue sin
-    //   detectar a V, ScriptSight (como mucho 3 veces por guardia).
-    // - Diagnostico: la primera vez que V esta a menos de 40 m, una linea con GuardStatus; si esta flotando a mas
-    //   de 0.5 m del suelo, se lo baja. Un segundo despues se mira si su IA avanzo (solo se escribe si no avanzo
-    //   o si se lo bajo).
     private func TickGuards(player: ref<PlayerPuppet>) {
         let gi: GameInstance = this.GetGameInstance();
         let det: ref<GRDetection> = GRDetection.Get(gi);
@@ -1920,9 +1788,6 @@ public class GRSpawner extends ScriptableSystem {
         }
     }
 
-    // La hostilidad se pone una vez al aparecer; si la IA del NPC no estaba lista, el estimulo se pierde y
-    // queda hostil pero quieto. Cada 3 s se vuelve a provocar a los que esten cerca y fuera de combate
-    // (maximo 6 veces por emboscada). Desde el tick, nunca desde eventos.
     private func ProvokeIdle(player: ref<PlayerPuppet>, now: Float) {
         if this.m_provokeAmbush != this.m_ambushStart {
             this.m_provokeAmbush = this.m_ambushStart;
@@ -1934,7 +1799,6 @@ public class GRSpawner extends ScriptableSystem {
         }
         this.m_provokeAt = now;
         let provoked: Int32 = 0;
-        // Uno que huye o se esconde esta neutral a proposito: no es un NPC "pasivo".
         let det: ref<GRDetection> = GRDetection.Get(this.GetGameInstance());
         let i: Int32 = 0;
         while i < ArraySize(this.m_entityIDs) {
@@ -1966,7 +1830,6 @@ public class GRSpawner extends ScriptableSystem {
         }
     }
 
-    // Atascada: ningun NPC cayo ni se alejo mas de 3 m de donde aparecio (o ni siquiera llego a cargarse).
     private func IsStuck() -> Bool {
         let i: Int32 = 0;
         while i < ArraySize(this.m_entityIDs) {
@@ -1981,7 +1844,6 @@ public class GRSpawner extends ScriptableSystem {
         return true;
     }
 
-    // Boton de debug "Quitar todos": borra todo ya, incluidos los sobrantes.
     public func DespawnAll() {
         let des: ref<DynamicEntitySystem> = GameInstance.GetDynamicEntitySystem();
         for id in this.m_leftIDs {
@@ -1996,8 +1858,6 @@ public class GRSpawner extends ScriptableSystem {
         this.ResetEncounter();
     }
 
-    // Fin de emboscada o redada sin borrar nada delante de V: todo pasa a sobrantes (ver TickLeftovers)
-    // y la emboscada queda libre para la siguiente.
     private func EndEncounter(reason: String) {
         this.CheckNeutralized();
         let i: Int32 = 0;
@@ -2023,14 +1883,11 @@ public class GRSpawner extends ScriptableSystem {
         ArrayPush(this.m_leftNames, name);
     }
 
-    // Huida con flash (V ciega): el spawn propio desaparece ya. Primero el icono y la barra de jefe, para
-    // que no queden colgados; el evento Deleted (OnEntityEvent) lo saca de las listas sin marcarlo muerto.
     public func Vanish(id: EntityID) {
         this.HideMarkers(id);
         GameInstance.GetDynamicEntitySystem().DeleteEntity(id);
     }
 
-    // Saca el icono y la barra de jefe de un spawn propio (al empezar a huir, antes de desaparecer).
     public func HideMarkers(id: EntityID) {
         let isNemesis: Bool = false;
         let index: Int32 = this.IndexOf(id);
@@ -2046,7 +1903,6 @@ public class GRSpawner extends ScriptableSystem {
         }
     }
 
-    // Lo uso GRDetection: un sobrante que deja de pelear porque el mod lo mando a irse no "escapo".
     public func IsLeftover(id: EntityID) -> Bool {
         return this.LeftoverIndex(id) >= 0;
     }
@@ -2070,8 +1926,6 @@ public class GRSpawner extends ScriptableSystem {
         ArrayErase(this.m_leftNames, i);
     }
 
-    // V lo tiene en pantalla: dentro de un cono de 100 grados (50 a cada lado, en horizontal) y con
-    // linea de vista (HasLineOfSight, la misma que usan la huida y la busqueda de sitio).
     private func PlayerSeesPos(player: ref<PlayerPuppet>, pos: Vector4) -> Bool {
         let toPos: Vector4 = pos - player.GetWorldPosition();
         toPos.Z = 0.0;
@@ -2081,7 +1935,6 @@ public class GRSpawner extends ScriptableSystem {
         return this.HasLineOfSight(player, pos);
     }
 
-    // Se va caminando, neutral con V (como quien se retira despues de la pelea).
     private func SendAway(npc: ref<ScriptedPuppet>, player: ref<PlayerPuppet>) {
         let puppet: ref<NPCPuppet> = npc as NPCPuppet;
         if !IsDefined(puppet) {
@@ -2094,10 +1947,6 @@ public class GRSpawner extends ScriptableSystem {
         GRMoveTo(puppet, GRAwayFrom(npc, player, 60.0), moveMovementType.Walk, 2.0);
     }
 
-    // Cada segundo. Vivos: se van y se borran fuera de la vista (a mas de 30 m, o a los 120 s), o a
-    // mas de 80 m; a los 300 s se borran igual (alguien trabado a la vista). Cadaveres: solo fuera de
-    // la vista (a mas de 20 m, o a los 60 s). Auto: fuera de la vista y a mas de 30 m, nunca con V adentro.
-    // Si se descargan solos, se sueltan. Los que huyen los maneja GRDetection: aca solo se borran.
     private func TickLeftovers() {
         if ArraySize(this.m_leftIDs) == 0 {
             return;
@@ -2173,7 +2022,6 @@ public class GRSpawner extends ScriptableSystem {
         this.m_raidMode = false;
         this.m_strongholdMode = false;
         this.m_vehicleState = 0;
-        // Si no, la emboscada siguiente a pie pasaria a sobrantes el auto de una anterior.
         let none: EntityID;
         this.m_vehicleID = none;
     }
@@ -2182,7 +2030,6 @@ public class GRSpawner extends ScriptableSystem {
         return ArraySize(this.m_entityIDs);
     }
 
-    // Rango por el nombre que manda CET ("Jefe ...", "Teniente ..."; los Soldados van sin prefijo).
     private func RankOfSpeaker(speaker: String) -> Int32 {
         let loc: ref<LocalizationSystem> = LocalizationSystem.GetInstance(this.GetGameInstance());
         let bossKeys: array<String> = ["GR-RankBoss", "GR-RankBossF"];
@@ -2199,8 +2046,6 @@ public class GRSpawner extends ScriptableSystem {
         return 1;
     }
 
-    // Nemesis mas duros: vida x ajuste del rango y, si esta activado, nivel de V + extra por rango.
-    // Los modificadores viven en la entidad: al borrarla se van con ella.
     private func ApplyToughness(index: Int32, npc: ref<ScriptedPuppet>) {
         let gi: GameInstance = this.GetGameInstance();
         let settings: ref<GRSettings> = GRSettings.Get(gi);
@@ -2220,7 +2065,6 @@ public class GRSpawner extends ScriptableSystem {
             let playerId: StatsObjectID = Cast<StatsObjectID>(player.GetEntityID());
             let extra: Float = Cast<Float>((rank - 1) * settings.levelPerRank);
             let powerLevel: Float = stats.GetStatValue(playerId, gamedataStatType.PowerLevel) + extra;
-            // Igual que NPCManager.ScaleToPlayer del juego: se quita lo anterior y se pone el valor final.
             stats.RemoveAllModifiers(id, gamedataStatType.PowerLevel);
             stats.AddModifier(id, RPGManager.CreateStatModifier(gamedataStatType.PowerLevel, gameStatModifierType.Additive, powerLevel));
             stats.RemoveAllModifiers(id, gamedataStatType.Level);
@@ -2230,12 +2074,6 @@ public class GRSpawner extends ScriptableSystem {
         GRLog("Nemesis #" + IntToString(this.m_nemesisIDs[index]) + ": rango " + IntToString(rank) + ", vida x" + FloatToStringPrec(health, 2) + ", nivel " + level);
     }
 
-    // Nemesis invencible (Nexus): NPCManager.Init (npcManager.swift:13/104) le pone modo dios con la fuente
-    // "Default" a todo record de TweakDB con la etiqueta "Invulnerable" (los tiros no hacen dano) o "Immortal"
-    // (la vida baja pero CanDieCondition no lo deja morir). Un Nemesis guarda el record del NPC del mundo del
-    // que salio (a veces uno de mision), y lo hereda al reaparecer. Solo se toca lo que genero el mod.
-    // Hilo principal (evento Spawned y Tick). withStat: tambien el stat IsInvulnerable (solo al aparecer: despues
-    // lo pueden subir efectos temporales legitimos).
     private func StripGodMode(index: Int32, npc: ref<ScriptedPuppet>, withStat: Bool) {
         let gi: GameInstance = this.GetGameInstance();
         let god: ref<GodModeSystem> = GameInstance.GetGodModeSystem(gi);
@@ -2303,11 +2141,9 @@ public class GRSpawner extends ScriptableSystem {
                     ArrayPush(this.m_appearanceReports, IntToString(this.m_nemesisIDs[index]) + ":" + NameToString(npc.GetCurrentAppearanceName()));
                 }
             } else if IsDefined(npc) && IsDefined(player) && this.m_strongholdMode {
-                // Hostiles sin estimulo: atacan cuando ven a V, asi se puede entrar en sigilo.
                 if IsDefined(npc.GetAttitudeAgent()) && IsDefined(player.GetAttitudeAgent()) {
                     npc.GetAttitudeAgent().SetAttitudeTowards(player.GetAttitudeAgent(), EAIAttitude.AIA_Hostile);
                 }
-                // Sentidos prendidos y evaluacion de V pedida desde ya (TickGuards insiste cada segundo si hace falta).
                 this.KeepSensesAwake(npc, player);
                 GRLog("Guarida: " + this.GuardLabel(index, npc) + " aparece con V a "
                     + FloatToStringPrec(Vector4.Distance(npc.GetWorldPosition(), player.GetWorldPosition()), 0) + " m | " + this.GuardStatus(npc, player, false));
@@ -2316,7 +2152,6 @@ public class GRSpawner extends ScriptableSystem {
                     ArrayPush(this.m_appearanceReports, IntToString(this.m_nemesisIDs[index]) + ":" + NameToString(npc.GetCurrentAppearanceName()));
                 }
             } else if IsDefined(npc) && IsDefined(player) {
-                // En vehiculo se vuelven hostiles al bajarse (StartVehicleFight), no al aparecer.
                 if this.m_vehicleState == 0 {
                     npc.GetAttitudeAgent().SetAttitudeTowards(player.GetAttitudeAgent(), EAIAttitude.AIA_Hostile);
                     StimBroadcasterComponent.SendStimDirectly(player, gamedataStimType.CombatHit, npc);
@@ -2414,20 +2249,13 @@ public class GRSpawner extends ScriptableSystem {
     }
 }
 
-// El juego ya anota si V dano el vehiculo (lo usa para la reaccion de la policia a la explosion).
-// Seguimiento de un guardia de guarida (GRSpawner.TickGuards).
 public class GRGuardWatch {
     public let id: EntityID;
-    // Segundos seguidos en que el motor no estaba detectando a V con este guardia.
     public let blindTicks: Int32;
-    // Veces que vio a V por script (ScriptSight).
     public let scriptSights: Int32;
-    // Ya se escribio su linea con V a menos de 40 m; ticksIA de ese momento.
     public let nearLogged: Bool;
     public let nearTicks: Int32;
-    // Ya se miro, un tick despues, si su IA avanzo.
     public let rechecked: Bool;
-    // Estaba flotando y se lo bajo al suelo.
     public let moved: Bool;
 }
 
