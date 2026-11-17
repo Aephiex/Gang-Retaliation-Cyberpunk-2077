@@ -2,10 +2,6 @@ module GangRetaliation
 
 import Codeware.Localization.*
 
-// Integraciones opcionales con They Will Remember (TWR) y Drug Dealer (DD).
-// Sus NPCs se reconocen por tags del DynamicEntitySystem, sin importar nada: funciona sin esos mods.
-// Solo el factor de calor lee sus sistemas, detras de @if(ModuleExists(...)).
-// Todo esto se llama en el hilo principal (tick, HandleCall o CET), nunca desde un hook de golpe.
 
 @if(ModuleExists("TheyWillRemember.Factions"))
 import TheyWillRemember.Factions.*
@@ -19,19 +15,10 @@ import TheyWillRemember.Retaliation
 @if(ModuleExists("TheyWillRemember.Redemption"))
 import TheyWillRemember.Redemption.RedemptionManager
 
-// Vigila dos cosas de They Will Remember (una vez por segundo, desde GRSpawner.Tick):
-// - TWR elige una banda para vengarse (Retaliation.GetCurrentThreat): su Jefe o Teniente Nemesis
-//   que conoce a V le avisa por SMS antes de que llegue el escuadron.
-// - V paga el perdon de TWR a una banda (RedemptionManager.GetPendingRedemption > 0): TWR olvida,
-//   pero el Nemesis lo rechaza por SMS. Sus emboscadas bajan a la mitad durante 3 dias de juego.
 public class GRTWRWatch extends ScriptableSystem {
-    // Ultima amenaza vista + 1 (0 = ninguna; redscript no acepta -1 como valor inicial).
     private let m_lastThreat: Int32;
-    // Perdon visto por indice de faccion de TWR (persistente: no repetir el SMS al cargar).
     private persistent let m_seenPending: array<Int32>;
-    // Hasta cuando (segundos de juego) las emboscadas de esa faccion van a la mitad.
     private persistent let m_refusedUntil: array<Int32>;
-    // Aviso y SMS esperando a que V salga de una escena.
     private let m_queuedText: String;
     private let m_queuedFirst: Int32;
 
@@ -52,7 +39,6 @@ public class GRTWRWatch extends ScriptableSystem {
         }
     }
 
-    // Jefe vivo que conoce a V, o si no un Teniente. null si la banda no tiene ninguno.
     private func FindLeader(gangKey: String) -> ref<GRMenuEntry> {
         let data: ref<GRMenuData> = GRMenuData.Get(this.GetGameInstance());
         if !IsDefined(data) {
@@ -118,7 +104,6 @@ public class GRTWRWatch extends ScriptableSystem {
         this.OnThreat(threat);
     }
 
-    // Devuelve el nombre de quien avisa, o "".
     private func OnThreat(index: Int32) -> String {
         let gangKey: String = GRIntegrations.GangOfTWRIndex(index);
         if StrLen(gangKey) == 0 {
@@ -148,8 +133,6 @@ public class GRTWRWatch extends ScriptableSystem {
         return leader.name;
     }
 
-    // Panel dev: 0 = como si TWR planeara una venganza, 1 = como si V pagara el perdon.
-    // Elige al azar una banda con Jefe/Teniente que conozca a V. No toca nada de TWR.
     public func Debug(action: Int32) -> String {
         this.Ensure();
         let candidates: array<Int32>;
@@ -180,7 +163,6 @@ public class GRTWRWatch extends ScriptableSystem {
         }
     }
 
-    // x0.5 si alguna banda de la lista rechazo el perdon hace menos de 3 dias de juego.
     public func GetRefusalFactor(gangs: String) -> Float {
         this.Ensure();
         let now: Int32 = this.GameSeconds();
@@ -218,7 +200,6 @@ public class GRTWRWatch extends ScriptableSystem {
 }
 
 public abstract class GRIntegrations {
-    // Escuadron externo cerca de V: mas lejos no es "esta pelea".
     public static func SquadRange() -> Float { return 120.0; }
 
     private static func HasTag(id: EntityID, tag: CName) -> Bool {
@@ -226,7 +207,6 @@ public abstract class GRIntegrations {
         return IsDefined(des) && des.IsTagged(id, tag);
     }
 
-    // Todo lo que genera Drug Dealer lleva DrugDealer.EntitySpawn; los enemigos ademas Hostile o FootEnemy.
     public static func IsDDSpawn(id: EntityID) -> Bool {
         return GRIntegrations.HasTag(id, n"DrugDealer.EntitySpawn");
     }
@@ -235,12 +215,10 @@ public abstract class GRIntegrations {
         return GRIntegrations.HasTag(id, n"DrugDealer.Hostile") || GRIntegrations.HasTag(id, n"DrugDealer.FootEnemy");
     }
 
-    // Soldados y aliados de V en Drug Dealer: nunca son Nemesis.
     public static func IsDDAlly(id: EntityID) -> Bool {
         return GRIntegrations.IsDDSpawn(id) && !GRIntegrations.IsDDHostile(id);
     }
 
-    // Miembro vivo de un escuadron externo, a menos de SquadRange de V. Devuelve su banda o "".
     private static func NearestGang(tag: CName, player: ref<PlayerPuppet>) -> String {
         let des: ref<DynamicEntitySystem> = GameInstance.GetDynamicEntitySystem();
         if !IsDefined(des) || !IsDefined(player) {
@@ -263,8 +241,6 @@ public abstract class GRIntegrations {
         return best;
     }
 
-    // "TWR|Banda" o "DD|Banda": el escuadron externo mas cercano a V. "" si no hay ninguno.
-    // CET lo usa para que un Nemesis de esa banda se sume a la pelea.
     public static func GetExternalSquad(gi: GameInstance) -> String {
         let player: ref<PlayerPuppet> = GetPlayer(gi);
         let gang: String = GRIntegrations.NearestGang(n"TheyWillRemember.Squad", player);
@@ -281,7 +257,6 @@ public abstract class GRIntegrations {
         return "";
     }
 
-    // Una mision de Drug Dealer con enemigos vivos (redada, invasion, emboscada al laboratorio...).
     public static func IsDDJobActive(gi: GameInstance) -> Bool {
         let des: ref<DynamicEntitySystem> = GameInstance.GetDynamicEntitySystem();
         if !IsDefined(des) {
@@ -300,8 +275,6 @@ public abstract class GRIntegrations {
         return false;
     }
 
-    // Multiplicador de la probabilidad de emboscada (hasta 2.0; x0.5 tras rechazar un perdon de TWR).
-    // gangs = bandas del distrito separadas por coma (GRSpawner.GetDistrictGangs).
     public static func GetHeatFactor(gi: GameInstance, gangs: String) -> Float {
         let factor: Float = GRIntegrations.TWRFactor(gi, gangs) * GRIntegrations.DDFactor(gi) * GRIntegrations.DDTurfFactor();
         let watch: ref<GRTWRWatch> = GRTWRWatch.Get(gi);
@@ -309,13 +282,10 @@ public abstract class GRIntegrations {
         return MinF(factor, 2.0) * refusal;
     }
 
-    // Vida para huir (%) = ajuste + terror de Drug Dealer (0-100 -> hasta +15). Maximo 75.
     public static func GetFleePercent(base: Int32) -> Float {
         return MinF(Cast<Float>(base) + 0.15 * GRIntegrations.DDTerror(), 75.0);
     }
 
-    // Territorio de Drug Dealer en la zona del barrio (clave de GRWar.GetAllDistricts, ej. "Kabuki").
-    // -1 = sin DD o zona fuera de DD; 0 rendido; 1 disputado; 2 controlado por V.
     public static func GetDDTurfState(districtKey: String) -> Int32 {
         return GRIntegrations.DDTurfStateOf(GRIntegrations.TopDistrictType(districtKey));
     }
@@ -324,7 +294,6 @@ public abstract class GRIntegrations {
         return GRIntegrations.DDTurfValueOf(GRIntegrations.TopDistrictType(districtKey));
     }
 
-    // Zonas que V le controla a esta banda en Drug Dealer ("Westbrook, Heywood"), o "".
     public static func GetDDLostTurfs(gang: String) -> String {
         let zones: array<gamedataDistrict> = [gamedataDistrict.Watson, gamedataDistrict.SantoDomingo, gamedataDistrict.Badlands,
             gamedataDistrict.Westbrook, gamedataDistrict.Heywood, gamedataDistrict.Pacifica];
@@ -337,7 +306,6 @@ public abstract class GRIntegrations {
         return result;
     }
 
-    // Bandas de cada zona segun Drug Dealer (GetOrganizationsBasedOnTurf), con nuestras claves.
     private static func DDTurfGangs(zone: gamedataDistrict) -> String {
         switch zone {
             case gamedataDistrict.Watson: return "Maelstrom,Scavengers,Animals";
@@ -362,7 +330,6 @@ public abstract class GRIntegrations {
         }
     }
 
-    // Tipo de la zona (Watson, Heywood...) de un barrio por su EnumName. Invalid si no se encuentra.
     private static func TopDistrictType(districtKey: String) -> gamedataDistrict {
         let records: array<ref<TweakDBRecord>> = TweakDBInterface.GetRecords(n"District");
         for record in records {
@@ -378,7 +345,6 @@ public abstract class GRIntegrations {
         return gamedataDistrict.Invalid;
     }
 
-    // Indice de faccion de TWR (KillCounts.GetFactionIndex) para nuestros nombres de banda.
     public static func TWRIndexOf(gang: String) -> Int32 {
         switch gang {
             case "Maelstrom": return 0;
@@ -409,7 +375,6 @@ public abstract class GRIntegrations {
         }
     }
 
-    // Rencor de TWR: banda hostil +0.5; muertes recientes hasta +0.5 (k / (k + 20)). Maximo de las bandas.
     @if(ModuleExists("TheyWillRemember.Factions"))
     private static func TWRFactor(gi: GameInstance, gangs: String) -> Float {
         let attitudes: ref<AttitudeManager> = AttitudeManager.GetInstance(gi);
@@ -438,7 +403,6 @@ public abstract class GRIntegrations {
         return 1.0;
     }
 
-    // Rango de traficante de V (0-12): +4% por rango, hasta x1.48.
     @if(ModuleExists("DrugDealer.State"))
     private static func DDFactor(gi: GameInstance) -> Float {
         let state: ref<PlayerStateSystem> = PlayerStateSystem.Get();
@@ -453,7 +417,6 @@ public abstract class GRIntegrations {
         return 1.0;
     }
 
-    // Territorio de DD donde esta V: disputado x1.25, controlado por V x1.5 (sus bandas quieren recuperarlo).
     @if(ModuleExists("DrugDealer.State"))
     private static func DDTurfFactor() -> Float {
         let turfs: ref<TurfControlSystem> = TurfControlSystem.Get();
@@ -478,7 +441,6 @@ public abstract class GRIntegrations {
         return 1.0;
     }
 
-    // Terror de DD (0-100): sube cuando V siembra el caos en la zona y baja solo.
     @if(ModuleExists("DrugDealer.State"))
     private static func DDTerror() -> Float {
         let terror: ref<TerrorSystem> = TerrorSystem.Get();
@@ -532,11 +494,7 @@ public abstract class GRIntegrations {
         return 0;
     }
 
-    // -------------------------------------------------------------------------
-    // Debug de Drug Dealer (panel dev de CET). Devuelven un texto para el log.
-    // -------------------------------------------------------------------------
 
-    // Una linea para el panel: terror, vida para huir y zona actual.
     @if(ModuleExists("DrugDealer.State"))
     public static func GetDDDebugInfo(baseFlee: Int32) -> String {
         let info: String = "DD terror " + IntToString(Cast<Int32>(GRIntegrations.DDTerror()))
@@ -557,7 +515,6 @@ public abstract class GRIntegrations {
         return "Drug Dealer not installed";
     }
 
-    // Deja una zona con un valor y estado fijos, igual que DD en SurrenderTurf, y redibuja sus marcadores.
     @if(ModuleExists("DrugDealer.State"))
     private static func DebugSetTurf(turfs: ref<TurfControlSystem>, turf: wref<Turf>, value: Int32, control: TurfControl) {
         turf.controlValue = value;
@@ -567,7 +524,6 @@ public abstract class GRIntegrations {
         turfs.RegisterMappins();
     }
 
-    // Una zona al azar que no sea de V pasa a controlada por V (85%). No respeta el limite de zonas de DD.
     @if(ModuleExists("DrugDealer.State"))
     public static func DebugCaptureRandomTurf() -> String {
         let turfs: ref<TurfControlSystem> = TurfControlSystem.Get();
@@ -591,7 +547,6 @@ public abstract class GRIntegrations {
         return "DD zone captured: " + EnumValueToString("TurfLocation", Cast<Int64>(EnumInt(pick)));
     }
 
-    // La zona donde esta V pasa a disputada (40%).
     @if(ModuleExists("DrugDealer.State"))
     public static func DebugContestCurrentTurf() -> String {
         let turfs: ref<TurfControlSystem> = TurfControlSystem.Get();
@@ -604,7 +559,6 @@ public abstract class GRIntegrations {
         return "DD zone contested: " + EnumValueToString("TurfLocation", Cast<Int64>(EnumInt(location)));
     }
 
-    // Todas las zonas vuelven a las bandas (0%).
     @if(ModuleExists("DrugDealer.State"))
     public static func DebugSurrenderAllTurfs() -> String {
         let turfs: ref<TurfControlSystem> = TurfControlSystem.Get();
@@ -619,7 +573,6 @@ public abstract class GRIntegrations {
         return "DD zones surrendered";
     }
 
-    // +25 de terror (DD limita lo que sube por segundo; baja solo con su tick).
     @if(ModuleExists("DrugDealer.State"))
     public static func DebugAddTerror() -> String {
         let terror: ref<TerrorSystem> = TerrorSystem.Get();

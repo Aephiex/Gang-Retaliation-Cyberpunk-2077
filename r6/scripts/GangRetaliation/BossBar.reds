@@ -1,8 +1,5 @@
 module GangRetaliation
 
-// Barra de jefe del juego (BossHealthBarGameController) para los Némesis.
-// El juego solo la muestra si IsBoss() o rareza MaxTac; aquí se deja pasar
-// también a los Némesis vivos (no a su escolta) y se pone su nombre completo.
 
 public func GRIsBossBarNemesis(puppet: ref<NPCPuppet>) -> Bool {
     if !IsDefined(puppet) {
@@ -16,7 +13,6 @@ public func GRIsBossBarNemesis(puppet: ref<NPCPuppet>) -> Bool {
     return IsDefined(spawner) && spawner.GetNemesisId(puppet.GetEntityID()) > 0;
 }
 
-// Avisa al HUD del jugador para que añada (o reevalúe, si combatEnded) la barra.
 public func GRNotifyBossBar(player: ref<GameObject>, npc: ref<GameObject>, combatEnded: Bool) {
     if !IsDefined(player) {
         return;
@@ -57,8 +53,6 @@ private final func AddBoss(boss: ref<NPCPuppet>) -> Void {
     }
 }
 
-// El juego saca la barra solo con eventos de amenaza o al acabar el combate. Si el mod borra al Nemesis
-// (fin de emboscada) o queda vivo y lejos, no llega ninguno y la barra se quedaba. Lo llama GRSpawner.Tick.
 @addMethod(BossHealthBarGameController)
 public func GRCleanupBossBar(player: ref<PlayerPuppet>) {
     let removed: Bool = false;

@@ -1,42 +1,23 @@
 module GangRetaliation
 
-// Guaridas fijas, una por banda (sitios probados en el juego). Lua pasa quienes viven en cada una
-// (Nemesis vivos de la banda, Jefe primero) y los guardias. Ocupada = tiene al menos un Nemesis vivo:
-// solo esas salen en el mapa y solo esas se generan. Una sola activa a la vez (GRSpawner tiene un solo
-// grupo de guarida): al acercarse V (<70 m, SpawnDistance) a la ocupada mas cercana aparecen en sus puestos; si V
-// se aleja (>250 m) sin combate, desaparecen.
-// No aparecen todos de golpe: cada puesto espera a tener el suelo cargado debajo y a que V no lo este mirando
-// (FillPosts). Antes aparecian todos con V a 120 m y quedaban flotando y sin reaccionar (bug de Nexus, 1.4.0).
-// Las muertes de Nemesis van por el camino normal de GRSpawner (MarkDead -> processDeaths en Lua).
-//
-// Guaridas automaticas: cada banda con candidatos en GRStrongholdCandidates (POI Outpost/GangWatch del juego) elige
-// sola donde vive; la posicion sale del mappin del POI en runtime (ScanMappins). La eleccion se guarda en la partida
-// (m_chosen + posicion). Se elige al empezar si la banda no esta localizada (AutoChoose), al tomar la guarida (se
-// muda y el intel vuelve a 0) y si la revalidacion al acercarse falla sin estar localizada (Revalidate). VoodooBoys
-// y Barghest no tienen candidatos: siguen en su sitio fijo. Sin candidato valido: sitio fijo.
 public class GRStronghold extends ScriptableSystem {
-    // Sitios (arrays paralelos, un indice por guarida). m_sitePos = donde esta ahora; m_siteFixed = el sitio fijo.
     private let m_siteGangs: array<String>;
     private let m_sitePos: array<Vector4>;
     private let m_siteFixed: array<Vector4>;
-    // Ultimo "sin candidato valido" logueado por sitio (no repetirlo en cada reintento).
     private let m_siteChoiceLog: array<String>;
 
-    // Eleccion por banda, paralelo a GRIntelSystem.Gangs(): indice del candidato + 1 (0 = sitio fijo) y su posicion.
     private persistent let m_chosen: array<Int32>;
     private persistent let m_chosenX: array<Float>;
     private persistent let m_chosenY: array<Float>;
     private persistent let m_chosenZ: array<Float>;
     private let m_gangList: array<String>;
 
-    // Candidatos: copia de GRStrongholdCandidates (una sola vez) + lo que se sabe de cada uno en esta sesion.
     private let m_candLoaded: Bool;
     private let m_candCount: Int32;
     private let m_candGangs: array<String>;
     private let m_candIds: array<String>;
     private let m_candVariants: array<Int32>;
     private let m_candHashes: array<Uint32>;
-    // Plan B: hash que da el journal para el path de cada candidato (0 = el journal no tiene esa entrada).
     private let m_candJournalHashes: array<Uint32>;
     private let m_candJournalDone: Bool;
     private let m_journalFound: Int32;
@@ -44,11 +25,9 @@ public class GRStronghold extends ScriptableSystem {
     private let m_journalExample: String;
     private let m_candPos: array<Vector4>;
     private let m_candKnown: array<Bool>;
-    // Fallo los puestos en la revalidacion: no se vuelve a elegir en esta sesion.
     private let m_candBad: array<Bool>;
     private let m_candFound: Int32;
 
-    // Ultimo escaneo de mappins: posiciones de mision y de zona segura, y numeros para el log.
     private let m_questPos: array<Vector4>;
     private let m_safePos: array<Vector4>;
     private let m_ticks: Int32;
@@ -64,10 +43,8 @@ public class GRStronghold extends ScriptableSystem {
     private let m_scanUnmatched: Int32;
     private let m_scanSecure: Int32;
     private let m_scanExample: String;
-    // Ticks hasta el proximo intento de elegir (bandas que quedaron sin candidato valido).
     private let m_choiceWait: Int32;
 
-    // Revalidacion de la visita en curso: sitio + 1 (0 = ninguna), puestos ya validados, chequeo de cerca hecho.
     private let m_visitSite: Int32;
     private let m_visitPosts: Bool;
     private let m_visitNear: Bool;
@@ -76,10 +53,8 @@ public class GRStronghold extends ScriptableSystem {
     private let m_siteGuards: array<String>;
     private let m_siteMappins: array<NewMappinID>;
     private let m_siteHasMappin: array<Bool>;
-    // Marca de cada mappin (va en su scriptData): se guarda aca para que no se libere mientras el mappin exista.
     private let m_siteMarks: array<ref<GRStrongholdMappinData>>;
 
-    // Miembros de todas las guaridas (arrays paralelos; m_memberSites = indice del sitio donde viven).
     private let m_memberSites: array<Int32>;
     private let m_ids: array<Int32>;
     private let m_records: array<String>;
@@ -88,29 +63,20 @@ public class GRStronghold extends ScriptableSystem {
 
     private let m_active: Bool;
     private let m_activeSite: Int32;
-    // Centro de la guarida activa: al tomarla el sitio se muda (m_sitePos cambia) pero los cuerpos siguen aca.
     private let m_activePos: Vector4;
     private let m_cleared: Bool;
 
-    // Puestos de la guarida activa que todavia no aparecieron (ver FillPosts). m_populating = quedan pendientes.
     private let m_pending: array<ref<GRPendingPost>>;
     private let m_populating: Bool;
-    // Ya se aviso a Lua ("spawned:") y se marco como localizada: al aparecer el primero.
     private let m_announced: Bool;
     private let m_fillTicks: Int32;
     private let m_placed: Int32;
     private let m_failed: Int32;
-    // Para el resumen del log: esperaron suelo / aparecieron sin suelo / esperaron a que V no mire / aparecieron a
-    // la vista / se bajaron al suelo.
     private let m_fillStats: array<Int32>;
 
-    // Para Lua, con la banda: "spawned:Animals", "cleared:Animals", "left:Animals".
     private let m_events: array<String>;
 
-    // Filtro "GUARIDAS" del mapa grande (ver los wrappers de WorldMapMenuGameController, mas abajo).
-    // m_mapFilterSeeded: ya se prendio una vez en esta partida (despues manda la casilla del jugador).
     private persistent let m_mapFilterSeeded: Bool;
-    // Lo ultimo que aviso el mapa: el filtro rapido es PERSONALIZADA / la casilla GUARIDAS esta marcada.
     private let m_mapCustom: Bool;
     private let m_mapFilterOn: Bool;
 
@@ -118,9 +84,6 @@ public class GRStronghold extends ScriptableSystem {
         return GameInstance.GetScriptableSystemsContainer(gi).Get(n"GangRetaliation.GRStronghold") as GRStronghold;
     }
 
-    // Valor del enum nativo que usa la casilla GUARIDAS. El enum no se puede ampliar: se toma uno que el juego
-    // define pero no usa en ningun grupo de filtro (record WorldMap.RelicDeviceFilter, sin grupo). Drug Dealer hace
-    // lo mismo con VehicleForSaleFilter. Tiene que coincidir con filterType en r6/tweaks/GangRetaliation/intel.yaml.
     public static func MapFilter() -> gamedataWorldMapFilter {
         return gamedataWorldMapFilter.RelicDeviceFilter;
     }
@@ -134,7 +97,6 @@ public class GRStronghold extends ScriptableSystem {
         GRLog("Mapa: filtro GUARIDAS prendido por primera vez en esta partida");
     }
 
-    // Lo llama el mapa grande (hilo de UI) al abrirse, al cambiar el filtro rapido y al marcar la casilla.
     public func SetMapFilter(custom: Bool, on: Bool) {
         let changed: Bool = (custom && !this.m_mapCustom) || (!custom && this.m_mapCustom)
             || (on && !this.m_mapFilterOn) || (!on && this.m_mapFilterOn);
@@ -147,19 +109,12 @@ public class GRStronghold extends ScriptableSystem {
         }
     }
 
-    // V tiene que estar a menos de esto del centro (en planta) para que la guarida empiece a aparecer. Eran 120 m:
-    // mas lejos que cualquier emboscada a pie (30-70 m), que son las que funcionan bien.
     public static func SpawnDistance() -> Float { return 70.0; }
-    // Un puesto que V tiene a la vista aparece igual si V ya esta a menos de esto, o tras SightWait segundos.
     public static func ForcedDistance() -> Float { return 45.0; }
     public static func SightWait() -> Int32 { return 8; }
-    // Segundos que un puesto espera a que cargue el suelo debajo antes de aparecer igual.
     public static func GroundWait() -> Int32 { return 10; }
-    // Segundos que se reintenta un puesto sin sitio en el navmesh antes de darlo por perdido.
     public static func SpotWait() -> Int32 { return 5; }
-    // Guaridas automaticas: V a menos de esto = empieza la visita y se revalida el sitio (termina a mas de 200 m).
     public static func CheckDistance() -> Float { return 150.0; }
-    // Puestos validos (de 20, TestSite) que necesita un sitio para servir de guarida.
     public static func MinPosts() -> Int32 { return 14; }
 
     private func OnDetach() {
@@ -170,13 +125,11 @@ public class GRStronghold extends ScriptableSystem {
         }
     }
 
-    // Coordenadas de data/site_candidates.json (todas con 20 puestos validos, salvo TygerClaws con 17).
     private func EnsureSites() {
         if ArraySize(this.m_siteGangs) > 0 {
             return;
         }
         this.AddSite("Animals", -2405.2426757813, -2084.2224121094, 9.0001068115234);
-        // Dogtown solo existe con Phantom Liberty.
         if IsEP1() {
             this.AddSite("Barghest", -1825.90527, -2639.56909, 40.3169174);
         }
@@ -228,9 +181,6 @@ public class GRStronghold extends ScriptableSystem {
         }
     }
 
-    // En el mapa solo las ocupadas y localizadas (intel de la banda al 100 %): se quita al quedar sin Nemesis y vuelve
-    // sola cuando la banda tiene otra vez. Con "Debug log" prendido salen todas las ocupadas (el intel no cambia).
-    // Corre en cada Tick (1 s): si el ajuste cambia en pleno juego, el mapa se pone al dia solo.
     private func RefreshMappins() {
         let intel: ref<GRIntelSystem> = GRIntelSystem.Get(this.GetGameInstance());
         let settings: ref<GRSettings> = GRSettings.Get(this.GetGameInstance());
@@ -241,14 +191,11 @@ public class GRStronghold extends ScriptableSystem {
             let occupied: Bool = this.m_siteMembers[i] > 0 && (located || debugAll);
             if occupied && !this.m_siteHasMappin[i] {
                 let data: MappinData;
-                // OutpostVariant decide color y tipo de tooltip; el icono, el titulo y el filtro del mapa (casilla
-                // GUARIDAS en vez de ESCANER NCPD) los cambian los wrappers de abajo, que reconocen el mappin por
-                // esta marca.
                 let mark: ref<GRStrongholdMappinData> = new GRStrongholdMappinData();
                 mark.gang = this.m_siteGangs[i];
                 this.m_siteMarks[i] = mark;
-                data.mappinType = t"Mappins.DefaultStaticMappin";
-                data.variant = gamedataMappinVariant.OutpostVariant;
+                data.mappinType = t"Mappins.GRStrongholdMappinDefinition";
+                data.variant = gamedataMappinVariant.CPO_PingDoorVariant;
                 data.active = true;
                 data.scriptData = mark;
                 this.m_siteMappins[i] = GameInstance.GetMappinSystem(this.GetGameInstance()).RegisterMappin(data, this.m_sitePos[i]);
@@ -273,7 +220,6 @@ public class GRStronghold extends ScriptableSystem {
         }
     }
 
-    // --- Datos desde Lua (ClearMembers una vez, luego AddMember/SetGuards por banda) ---
 
     public func ClearMembers() {
         this.EnsureSites();
@@ -290,7 +236,6 @@ public class GRStronghold extends ScriptableSystem {
         }
     }
 
-    // Lua los pasa en orden (Jefe primero). Bandas sin guarida (o Barghest sin Phantom Liberty): se ignoran.
     public func AddMember(gang: String, nemesisId: Int32, recordID: String, appearance: String, speaker: String) {
         let site: Int32 = this.FindSite(gang);
         if site < 0 || this.m_siteMembers[site] >= 20 {
@@ -304,7 +249,6 @@ public class GRStronghold extends ScriptableSystem {
         this.m_siteMembers[site] = this.m_siteMembers[site] + 1;
     }
 
-    // records: TweakDBIDs de los guardias separados por coma.
     public func SetGuards(gang: String, records: String) {
         let site: Int32 = this.FindSite(gang);
         if site >= 0 {
@@ -321,7 +265,6 @@ public class GRStronghold extends ScriptableSystem {
         return first;
     }
 
-    // --- Lectura (debug en vivo: REDnode solo deja llamar Get/Is/Has) ---
 
     public func HasSite(gang: String) -> Bool {
         return this.FindSite(gang) >= 0;
@@ -368,7 +311,6 @@ public class GRStronghold extends ScriptableSystem {
         return this.GetSiteGang(this.m_activeSite);
     }
 
-    // Indice de la guarida mas cercana a V (ocupada o no); -1 sin jugador.
     public func GetNearestSite() -> Int32 {
         return this.FindNearest(false);
     }
@@ -381,7 +323,6 @@ public class GRStronghold extends ScriptableSystem {
         return this.GetSiteDistance(this.FindNearest(false));
     }
 
-    // Distancia de V a esa guarida (en planta); -1 si no hay jugador o el indice no existe.
     public func GetSiteDistance(site: Int32) -> Float {
         let player: ref<PlayerPuppet> = GetPlayer(this.GetGameInstance());
         if !this.IsValidSite(site) || !IsDefined(player) {
@@ -391,7 +332,6 @@ public class GRStronghold extends ScriptableSystem {
         return Vector4.Distance2D(pos, this.m_sitePos[site]);
     }
 
-    // Dev: una linea para el panel de CET.
     public func GetNearestInfo() -> String {
         let site: Int32 = this.FindNearest(false);
         if site < 0 {
@@ -436,9 +376,7 @@ public class GRStronghold extends ScriptableSystem {
         return best;
     }
 
-    // --- Dev ---
 
-    // Dev: los recoge y vuelven a aparecer en el proximo tick si V sigue a menos de SpawnDistance.
     public func Respawn() {
         if this.m_active {
             GRSpawner.Get(this.GetGameInstance()).DespawnAll();
@@ -447,7 +385,6 @@ public class GRStronghold extends ScriptableSystem {
         }
     }
 
-    // Dev: lleva a V a la guarida de esa banda. false si la banda no tiene (Barghest sin Phantom Liberty).
     public func DevTeleport(gang: String) -> Bool {
         let site: Int32 = this.FindSite(gang);
         let player: ref<PlayerPuppet> = GetPlayer(this.GetGameInstance());
@@ -460,7 +397,6 @@ public class GRStronghold extends ScriptableSystem {
         return true;
     }
 
-    // Dev: cuantos de los 20 puestos de una guarida llena entran en ese punto (sin generar a nadie).
     public func TestSite(x: Float, y: Float, z: Float) -> Int32 {
         let spawner: ref<GRSpawner> = GRSpawner.Get(this.GetGameInstance());
         let center: Vector4 = new Vector4(x, y, z, 1.0);
@@ -487,9 +423,7 @@ public class GRStronghold extends ScriptableSystem {
         return ok;
     }
 
-    // --- Guaridas automaticas ---
 
-    // Lugar de la banda en los arrays guardados (orden de GRIntelSystem.Gangs(), el mismo del intel).
     private func GangSlot(gang: String) -> Int32 {
         if ArraySize(this.m_gangList) == 0 {
             let gangs: array<String> = GRIntelSystem.Gangs();
@@ -505,7 +439,6 @@ public class GRStronghold extends ScriptableSystem {
         return -1;
     }
 
-    // Un lugar por banda antes de leer o escribir la eleccion (partidas viejas: arrays vacios = sitio fijo).
     private func EnsureChoices() {
         this.GangSlot("");
         let count: Int32 = ArraySize(this.m_gangList);
@@ -523,7 +456,6 @@ public class GRStronghold extends ScriptableSystem {
         }
     }
 
-    // Copia los arrays de GRStrongholdCandidates una sola vez (son funciones: cada llamada arma el array entero).
     private func EnsureCandidates() {
         if this.m_candLoaded {
             return;
@@ -547,8 +479,6 @@ public class GRStronghold extends ScriptableSystem {
         }
     }
 
-    // Plan B del hash: el que da el journal para el path de cada candidato. De paso cuenta cuantos coinciden con el
-    // hash estatico del archivo generado (eso confirma o refuta el Murmur3 offline).
     private func EnsureJournalHashes() {
         if this.m_candJournalDone {
             return;
@@ -579,7 +509,6 @@ public class GRStronghold extends ScriptableSystem {
         }
     }
 
-    // Candidato con ese hash de journal: primero el hash estatico, despues el del journal (plan B). -1 = ninguno.
     private func FindCandidate(hash: Uint32, out byJournal: Bool) -> Int32 {
         byJournal = false;
         let i: Int32 = 0;
@@ -600,7 +529,6 @@ public class GRStronghold extends ScriptableSystem {
         return -1;
     }
 
-    // Variantes donde V esta a salvo o hace compras: departamentos, fixers, tiendas y servicios, puntos de entrega.
     private func IsSafeVariant(variant: gamedataMappinVariant) -> Bool {
         return Equals(variant, gamedataMappinVariant.ApartmentVariant)
             || Equals(variant, gamedataMappinVariant.Zzz05_ApartmentToPurchaseVariant)
@@ -622,9 +550,6 @@ public class GRStronghold extends ScriptableSystem {
             || Equals(variant, gamedataMappinVariant.Zzz21_ServicePointGlamdocVariant);
     }
 
-    // Recorre los mappins del mapa una vez: posicion de cada candidato (POI Outpost/GangWatch cuyo hash de journal es
-    // el de un candidato) y posiciones de mision y de zona segura para los filtros. Solo cuando hace falta (primer
-    // escaneo, al elegir, al empezar una visita) y como mucho una vez cada 5 ticks: son miles de mappins.
     private func ScanMappins() {
         this.EnsureCandidates();
         if this.m_scanDone && this.m_ticks - this.m_scanTick < 5 {
@@ -659,7 +584,6 @@ public class GRStronghold extends ScriptableSystem {
                     ArrayPush(this.m_safePos, mappin.GetWorldPosition());
                 } else if Equals(variant, gamedataMappinVariant.OutpostVariant) || Equals(variant, gamedataMappinVariant.GangWatchVariant) {
                     this.m_scanVariant += 1;
-                    // Los mappins de guarida del mod tambien son OutpostVariant, pero no son PointOfInterestMappin.
                     let poi: ref<PointOfInterestMappin> = mappin as PointOfInterestMappin;
                     if IsDefined(poi) {
                         this.m_scanPoi += 1;
@@ -700,8 +624,6 @@ public class GRStronghold extends ScriptableSystem {
         }
     }
 
-    // Una vez por sesion: lo que encontro el primer escaneo. Confirma o refuta el hash estatico y si los POI sin
-    // descubrir aparecen en GetMappins.
     private func LogScan() {
         GRLog("Guaridas auto: escaneo de mappins (Map): " + IntToString(this.m_scanTotal) + " mappins, " + IntToString(this.m_scanVariant)
             + " outpost/gangwatch (" + IntToString(this.m_scanPoi) + " son POI) | candidatos con posicion " + IntToString(this.m_candFound) + "/"
@@ -736,7 +658,6 @@ public class GRStronghold extends ScriptableSystem {
         }
         GRLog("Guaridas auto: candidatos con posicion por banda: " + line);
         if this.m_scanPoi == 0 {
-            // Para saber si el problema es el tipo de lista: cuantos mappins dan las otras dos.
             let system: ref<MappinSystem> = GameInstance.GetMappinSystem(this.GetGameInstance());
             let world: array<ref<IMappin>>;
             let minimap: array<ref<IMappin>>;
@@ -748,7 +669,6 @@ public class GRStronghold extends ScriptableSystem {
         }
     }
 
-    // Eleccion guardada de ese sitio: indice del candidato + 1 (0 = sitio fijo).
     private func GetChosen(site: Int32) -> Int32 {
         let slot: Int32 = this.GangSlot(this.m_siteGangs[site]);
         if slot < 0 || slot >= ArraySize(this.m_chosen) {
@@ -757,7 +677,6 @@ public class GRStronghold extends ScriptableSystem {
         return this.m_chosen[slot];
     }
 
-    // Nombre del lugar donde esta ahora: el ma_id del candidato o "sitio fijo".
     private func SiteLabel(site: Int32) -> String {
         let chosen: Int32 = this.GetChosen(site);
         if chosen <= 0 || chosen > this.m_candCount {
@@ -766,7 +685,6 @@ public class GRStronghold extends ScriptableSystem {
         return this.m_candIds[chosen - 1];
     }
 
-    // Al crear los sitios: los que tienen eleccion guardada en la partida van a esa posicion.
     private func ApplyChoices() {
         this.EnsureCandidates();
         this.EnsureChoices();
@@ -777,7 +695,6 @@ public class GRStronghold extends ScriptableSystem {
                 let cand: Int32 = this.m_chosen[slot] - 1;
                 let x: Float = this.m_chosenX[slot];
                 let y: Float = this.m_chosenY[slot];
-                // El indice tiene que seguir siendo de esta banda (el archivo de candidatos se regenera).
                 if cand < this.m_candCount && Equals(this.m_candGangs[cand], this.m_siteGangs[i]) && (AbsF(x) > 0.01 || AbsF(y) > 0.01) {
                     this.m_sitePos[i] = new Vector4(x, y, this.m_chosenZ[slot], 1.0);
                     GRLog("Guarida (" + this.m_siteGangs[i] + "): en " + this.m_candIds[cand] + " (eleccion guardada en la partida)");
@@ -790,7 +707,6 @@ public class GRStronghold extends ScriptableSystem {
         }
     }
 
-    // Hay un mappin de mision (mission = true) o de zona segura (false) del ultimo escaneo a menos de radius, en planta.
     private func IsNearMappin(mission: Bool, pos: Vector4, radius: Float) -> Bool {
         let count: Int32 = mission ? ArraySize(this.m_questPos) : ArraySize(this.m_safePos);
         let i: Int32 = 0;
@@ -804,7 +720,6 @@ public class GRStronghold extends ScriptableSystem {
         return false;
     }
 
-    // A menos de radius de la guarida actual de otra banda.
     private func IsNearOtherSite(site: Int32, pos: Vector4, radius: Float) -> Bool {
         let i: Int32 = 0;
         while i < ArraySize(this.m_sitePos) {
@@ -816,10 +731,6 @@ public class GRStronghold extends ScriptableSystem {
         return false;
     }
 
-    // Candidato para ese sitio, o -1 si ninguno pasa. Filtros: de esa banda, con posicion conocida, a 200 m o mas de V,
-    // a 400 m o mas de las otras guaridas y de avoid (la recien tomada), sin zona segura a menos de 60 m ni mappin de
-    // mision a menos de 150 m. Entre los validos, al azar, primero los outpost (variante 0) y si no hay, gangwatch.
-    // Usa las listas del ultimo ScanMappins: llamarlo antes.
     private func ChooseCandidate(site: Int32, exclude: Int32, avoid: Vector4, useAvoid: Bool, out discarded: String) -> Int32 {
         let gang: String = this.m_siteGangs[site];
         let player: ref<PlayerPuppet> = GetPlayer(this.GetGameInstance());
@@ -874,8 +785,6 @@ public class GRStronghold extends ScriptableSystem {
         return -1;
     }
 
-    // Pone el sitio en ese candidato (-1 = sitio fijo) y lo guarda en la partida. El mappin se quita: RefreshMappins lo
-    // vuelve a registrar en la posicion nueva si corresponde (ocupada y localizada, o debug).
     private func MoveSite(site: Int32, cand: Int32) {
         this.EnsureChoices();
         let slot: Int32 = this.GangSlot(this.m_siteGangs[site]);
@@ -908,8 +817,6 @@ public class GRStronghold extends ScriptableSystem {
             + ") a " + IntToString(Cast<Int32>(this.GetSiteDistance(site))) + " m de V | " + discarded);
     }
 
-    // Muda la guarida a otro candidato, lejos de donde esta ahora; si ninguno pasa los filtros, al sitio fijo.
-    // false = no se movio (ya estaba en el sitio fijo y no hay candidato valido).
     private func Relocate(site: Int32, reason: String) -> Bool {
         let gang: String = this.m_siteGangs[site];
         let current: Int32 = this.GetChosen(site) - 1;
@@ -932,8 +839,6 @@ public class GRStronghold extends ScriptableSystem {
         return true;
     }
 
-    // Cada tick: primer escaneo (a los 3 s y cada 5 s hasta que aparezcan candidatos, 6 intentos) y despues las
-    // elecciones pendientes.
     private func TickCandidates() {
         this.m_ticks += 1;
         if !this.m_scanLogged {
@@ -955,9 +860,6 @@ public class GRStronghold extends ScriptableSystem {
         this.AutoChoose();
     }
 
-    // Bandas sin eleccion y sin localizar: eligen guarida. Una ya localizada en el sitio fijo se respeta hasta que la
-    // tomen. No se elige con V cerca del sitio actual ni con la guarida activa. Las que quedan sin candidato valido
-    // reintentan cada 60 s (cada intento escanea los mappins).
     private func AutoChoose() {
         let player: ref<PlayerPuppet> = GetPlayer(this.GetGameInstance());
         if !IsDefined(player) {
@@ -1014,7 +916,6 @@ public class GRStronghold extends ScriptableSystem {
         return false;
     }
 
-    // Policias de la NCPD en pie a menos de radius del punto (en planta). Busca entre los NPC cargados alrededor de V.
     private func CountPoliceNear(pos: Vector4, radius: Float) -> Int32 {
         let player: ref<PlayerPuppet> = GetPlayer(this.GetGameInstance());
         if !IsDefined(player) {
@@ -1048,14 +949,6 @@ public class GRStronghold extends ScriptableSystem {
         return ArraySize(seen);
     }
 
-    // Revalida el sitio cuando V se acerca. near = false: al empezar la visita (CheckDistance); near = true: justo antes
-    // de poblar (SpawnDistance). Devuelve 0 = seguir, 1 = esperar un tick mas, 2 = la guarida se mudo.
-    // - Mision (solo de lejos): objetivo seguido cerca de V o mappin de mision a menos de 150 m del sitio.
-    // - Puestos: TestSite >= MinPosts. De lejos el navmesh puede no estar cargado: un mal resultado ahi no decide, se
-    //   repite de cerca, y de cerca se reintenta SpotWait ticks (igual que los puestos al poblar). En el ultimo intento
-    //   prueba con el centro bajado al navmesh (el mappin de un POI puede estar por encima del suelo).
-    // - NCPD a menos de 50 m (entre los NPC que haya cargados).
-    // Si falla y la banda no esta localizada, se muda en silencio. Si esta localizada no se toca: V la esta buscando.
     private func Revalidate(spawner: ref<GRSpawner>, site: Int32, near: Bool) -> Int32 {
         let gang: String = this.m_siteGangs[site];
         let pos: Vector4 = this.m_sitePos[site];
@@ -1132,7 +1025,6 @@ public class GRStronghold extends ScriptableSystem {
         return 0;
     }
 
-    // Corrige la posicion del sitio (centro ajustado al navmesh) y la guarda si es un candidato elegido.
     private func SetSitePosition(site: Int32, pos: Vector4) {
         this.m_sitePos[site] = pos;
         let slot: Int32 = this.GangSlot(this.m_siteGangs[site]);
@@ -1144,8 +1036,6 @@ public class GRStronghold extends ScriptableSystem {
         this.RemoveSiteMappin(site);
     }
 
-    // Dev (consola CET): fuerza la mudanza de la guarida de esa banda, igual que si la hubieran tomado (intel a 0).
-    // print(Game.GetScriptableSystemsContainer():Get("GangRetaliation.GRStronghold"):DevMove("Maelstrom"))
     public func DevMove(gang: String) -> String {
         let site: Int32 = this.FindSite(gang);
         if site < 0 {
@@ -1162,7 +1052,6 @@ public class GRStronghold extends ScriptableSystem {
         return gang + ": " + from + " -> " + this.SiteLabel(site) + ", " + IntToString(Cast<Int32>(this.GetSiteDistance(site))) + " m from V";
     }
 
-    // Dev: donde esta la guarida de esa banda (candidato o sitio fijo), posicion y distancia a V.
     public func GetSiteInfo(gang: String) -> String {
         let site: Int32 = this.FindSite(gang);
         if site < 0 {
@@ -1175,7 +1064,6 @@ public class GRStronghold extends ScriptableSystem {
             + IntToString(this.m_candCount);
     }
 
-    // --- Tick (1 s, desde Lua, hilo principal) ---
 
     public func Tick() {
         this.EnsureSites();
@@ -1200,13 +1088,10 @@ public class GRStronghold extends ScriptableSystem {
                     return;
                 }
             }
-            // Mientras queden puestos por aparecer no esta tomada (al principio no hay nadie en pie).
             if !this.m_populating && !this.m_cleared && spawner.CountStanding() == 0 {
                 this.m_cleared = true;
                 ArrayPush(this.m_events, "cleared:" + gang);
                 GRLog("Guarida (" + gang + "): tomada");
-                // La banda se muda a otro candidato y hay que volver a encontrarla (intel a 0). Si no tiene adonde
-                // ir (sin candidatos o ninguno valido estando ya en el sitio fijo) queda localizada, como antes.
                 if this.Relocate(this.m_activeSite, "tomada") {
                     let intel: ref<GRIntelSystem> = GRIntelSystem.Get(this.GetGameInstance());
                     if IsDefined(intel) {
@@ -1216,7 +1101,6 @@ public class GRStronghold extends ScriptableSystem {
                     this.MarkLocated(gang, "guarida tomada");
                 }
             }
-            // Contra m_activePos: tras la mudanza m_sitePos ya es el sitio nuevo y los cuerpos siguen en el viejo.
             if Vector4.Distance2D(player.GetWorldPosition(), this.m_activePos) > 250.0 && !player.IsInCombat() {
                 spawner.DespawnAll();
                 this.m_active = false;
@@ -1227,15 +1111,12 @@ public class GRStronghold extends ScriptableSystem {
             return;
         }
 
-        // Ninguna activa: la ocupada mas cercana.
         let site: Int32 = this.FindNearest(true);
         if site < 0 {
             this.m_visitSite = 0;
             return;
         }
         let distance: Float = this.GetSiteDistance(site);
-        // Visita = V entra a menos de CheckDistance; termina cuando se aleja a mas de 200 m. Al empezar se revalida
-        // el sitio de lejos (mision, NCPD, puestos si el navmesh ya esta).
         if this.m_visitSite != site + 1 {
             this.m_visitSite = 0;
             if distance > GRStronghold.CheckDistance() {
@@ -1252,7 +1133,6 @@ public class GRStronghold extends ScriptableSystem {
             this.m_visitSite = 0;
             return;
         }
-        // Aparecen si V esta a menos de SpawnDistance.
         if distance > GRStronghold.SpawnDistance() {
             return;
         }
@@ -1260,7 +1140,6 @@ public class GRStronghold extends ScriptableSystem {
         if StrLen(blocker) > 0 {
             return;
         }
-        // Revalidacion de cerca, justo antes de poblar: aca el navmesh ya esta cargado (0 sigue, 1 esperar, 2 se mudo).
         if !this.m_visitNear {
             if this.Revalidate(spawner, site, true) != 0 {
                 return;
@@ -1275,13 +1154,9 @@ public class GRStronghold extends ScriptableSystem {
         this.m_populating = false;
     }
 
-    // Arma la lista de puestos de la guarida y la deja activa; los NPC van apareciendo en FillPosts (el primer
-    // intento es ya mismo, los demas uno por tick). Los datos de cada miembro se copian al puesto: Lua puede
-    // rehacer la lista de miembros (ClearMembers/AddMember) mientras quedan pendientes.
     private func BeginPopulate(spawner: ref<GRSpawner>, player: ref<PlayerPuppet>, site: Int32) {
         let gang: String = this.m_siteGangs[site];
         ArrayClear(this.m_pending);
-        // Jefe en el centro, el resto a 4-6 m; guardias en dos anillos: 8 a 8-12 m, el resto a 14-20 m.
         let slot: Int32 = 0;
         let i: Int32 = 0;
         while i < ArraySize(this.m_ids) {
@@ -1336,13 +1211,6 @@ public class GRStronghold extends ScriptableSystem {
         this.FillPosts(spawner, player);
     }
 
-    // Una vez por tick mientras queden puestos pendientes. Cada puesto aparece cuando:
-    // - tiene sitio en el navmesh (se reintenta SpotWait segundos; si no, se pierde, como antes);
-    // - hay suelo cargado debajo (GRSpawner.GroundBelow). Sin colision el NPC queda flotando a la altura del
-    //   navmesh. Tras GroundWait segundos aparece igual: nunca peor que antes;
-    // - V no lo tiene a la vista, salvo que ya este a menos de ForcedDistance o hayan pasado SightWait segundos
-    //   (mejor verlo aparecer a lo lejos que entrar a una guarida vacia).
-    // Si el navmesh quedo por encima del suelo real, aparece a la altura del suelo.
     private func FillPosts(spawner: ref<GRSpawner>, player: ref<PlayerPuppet>) {
         let gang: String = this.m_siteGangs[this.m_activeSite];
         let center: Vector4 = this.m_activePos;
@@ -1362,7 +1230,6 @@ public class GRStronghold extends ScriptableSystem {
                 if !Vector4.IsZero(found) {
                     post.pos = found;
                     post.hasPos = true;
-                    // Las esperas de suelo y de vista cuentan desde que el puesto tiene sitio.
                     post.waited = 1;
                 } else if post.waited >= GRStronghold.SpotWait() {
                     this.m_failed += 1;
@@ -1385,7 +1252,6 @@ public class GRStronghold extends ScriptableSystem {
                     waitSight += 1;
                 } else {
                     let spawnPos: Vector4 = post.pos;
-                    // Hasta 3 m hacia abajo, o un escalon (0.4 m) hacia arriba; mas arriba seria un obstaculo.
                     let drop: Float = ground ? post.pos.Z - groundZ : 0.0;
                     let snap: Bool = ground && drop > -0.4 && AbsF(drop) > 0.05;
                     if snap {
@@ -1415,7 +1281,6 @@ public class GRStronghold extends ScriptableSystem {
                         }
                         done = true;
                     } else if post.waited > GRStronghold.GroundWait() {
-                        // El sistema de entidades no estuvo listo en todo este tiempo.
                         this.m_failed += 1;
                         done = true;
                     }
@@ -1430,7 +1295,6 @@ public class GRStronghold extends ScriptableSystem {
         if this.m_placed > 0 && !this.m_announced {
             this.m_announced = true;
             ArrayPush(this.m_events, "spawned:" + gang);
-            // V llego a la guarida sin el intel completo: ya la encontro, queda en el mapa.
             this.MarkLocated(gang, "V llego a la guarida");
         }
         if this.m_fillTicks == 1 {
@@ -1453,7 +1317,6 @@ public class GRStronghold extends ScriptableSystem {
             + " aparecieron a la vista) | bajados al suelo " + IntToString(this.m_fillStats[4]));
     }
 
-    // Si el puesto no sirve, prueba mas cerca y girando un poco.
     private func FindPost(spawner: ref<GRSpawner>, center: Vector4, angle: Float, radius: Float) -> Vector4 {
         let tries: array<Float> = [1.0, 0.7, 0.4];
         for scale in tries {
@@ -1466,38 +1329,26 @@ public class GRStronghold extends ScriptableSystem {
     }
 }
 
-// Puesto de la guarida activa que todavia no aparecio (GRStronghold.FillPosts).
 public class GRPendingPost {
-    // 0 = guardia.
     public let nemesisId: Int32;
     public let record: String;
     public let appearance: String;
     public let speaker: String;
     public let angle: Float;
     public let radius: Float;
-    // Sitio elegido en el navmesh (hasPos = ya lo tiene).
     public let pos: Vector4;
     public let hasPos: Bool;
-    // Ticks (segundos) esperando: primero sitio; despues, suelo y que V no mire.
     public let waited: Int32;
     public let waitedGround: Bool;
     public let waitedSight: Bool;
 }
 
-// -----------------------------------------------------------------------------
-// Icono de guarida en el mapa. Ninguna variante del juego usa la parte "devil_horns" de mappin_icons.inkatlas, asi
-// que el mappin se registra como OutpostVariant y lleva esta marca en su scriptData. Los controladores de icono
-// (mapa grande, minimapa y marcador en el mundo) la leen con GetScriptData y solo entonces cambian la parte: los
-// demas marcadores del juego no se tocan y no hay busquedas en listas. Los tres widgets ya usan ese atlas.
-// -----------------------------------------------------------------------------
 public class GRStrongholdMappinData extends MappinScriptData {
     public let gang: String;
-    // Ya se aviso en el log (una vez por mappin y vista, no en cada actualizacion).
     private let m_loggedMap: Bool;
     private let m_loggedMinimap: Bool;
     private let m_loggedWorld: Bool;
     private let m_loggedTooltip: Bool;
-    // Ultimo estado del filtro del mapa que se aviso en el log: 0 = ninguno, 1 = visible, 2 = oculta.
     private let m_loggedFilter: Int32;
 
     public static func IconPart() -> CName {
@@ -1519,7 +1370,6 @@ public class GRStrongholdMappinData extends MappinScriptData {
     public static func ViewWorld() -> Int32 { return 2; }
     public static func ViewTooltip() -> Int32 { return 3; }
 
-    // La marca si el mappin es una guarida nuestra; null en cualquier otro marcador.
     public static func Of(mappin: wref<IMappin>) -> wref<GRStrongholdMappinData> {
         if !IsDefined(mappin) {
             return null;
@@ -1558,19 +1408,16 @@ public class GRStrongholdMappinData extends MappinScriptData {
     }
 }
 
-// Marca del icono de intel: va en el scriptData del mappin que GRIntelSystem cuelga de cada pandillero inconsciente
-// al que se le pueden extraer datos. Mismo truco que la guarida: la variante (HuntForPsychoVariant) decide donde se
-// ve y el color; la parte "download" del atlas la ponen los wrappers de abajo.
 public class GRIntelMappinData extends MappinScriptData {
-    // Para el log: banda, rango y record del NPC.
     public let label: String;
+    public let gang: String;
     private let m_loggedMap: Bool;
     private let m_loggedMinimap: Bool;
     private let m_loggedWorld: Bool;
     private let m_loggedFilter: Bool;
 
     public static func IconPart() -> CName {
-        return n"download";
+        return n"codex_glossary";
     }
 
     public func LogFilter() -> Void {
@@ -1578,7 +1425,7 @@ public class GRIntelMappinData extends MappinScriptData {
             return;
         }
         this.m_loggedFilter = true;
-        GRLog("Intel: icono visible en el mapa con filtro PERSONALIZADA (no depende de CIBERPSICOPATA), " + this.label);
+        GRLog("Intel: icono visible en el mapa con la casilla GANG RETALIATION, " + this.label);
     }
 
     public func LogOnce(view: Int32) -> Void {
@@ -1602,12 +1449,10 @@ public class GRIntelMappinData extends MappinScriptData {
             this.m_loggedWorld = true;
             what = "el marcador del mundo";
         }
-        GRLog("Intel: icono download dibujado en " + what + ", " + this.label);
+        GRLog("Intel: icono dibujado en " + what + ", " + this.label);
     }
 }
 
-// Va despues del UpdateIcon del juego (que pone el icono de la variante): lo pisa solo en los mappins del mod, que se
-// reconocen por la marca de su scriptData (una sola lectura por actualizacion; los demas marcadores no se tocan).
 public func GRApplyMappinIcon(mappin: wref<IMappin>, icon: inkImageRef, view: Int32) -> Void {
     if !IsDefined(mappin) {
         return;
@@ -1629,61 +1474,127 @@ public func GRApplyMappinIcon(mappin: wref<IMappin>, icon: inkImageRef, view: In
     }
 }
 
-// Map filter fix by RedFalcon (Gang Retaliation History), 1.4.6. Thanks!
-// Map filter crash fix: the filter code must never call GetScriptData() on a controller's mappin outside the
-// vanilla bind path (the native mappin can already be freed while its widget is still in the spawn container).
-// The script data is cached here, where the mappin is known to be alive, and the filter code only reads the cache.
-@addField(BaseWorldMapMappinController)
-private let m_grStronghold: ref<GRStrongholdMappinData>;
-
-@addField(BaseWorldMapMappinController)
-private let m_grIntel: ref<GRIntelMappinData>;
-
-@addMethod(BaseWorldMapMappinController)
-public func GRCacheMappinData() -> Void {
-    this.m_grStronghold = null;
-    this.m_grIntel = null;
-    let mappin: wref<IMappin> = this.GetMappin();
-    if !IsDefined(mappin) {
-        return;
-    }
-    let data: wref<MappinScriptData> = mappin.GetScriptData();
-    if !IsDefined(data) {
-        return;
-    }
-    this.m_grStronghold = data as GRStrongholdMappinData;
-    this.m_grIntel = data as GRIntelMappinData;
-}
-
-// Mapa grande. Un grupo de marcadores (varios juntos con el zoom alejado) conserva el icono del juego.
 @wrapMethod(BaseWorldMapMappinController)
 protected func UpdateIcon() -> Void {
     wrappedMethod();
     if !this.IsCollection() {
-        this.GRCacheMappinData();
         GRApplyMappinIcon(this.GetMappin(), this.iconWidget, GRStrongholdMappinData.ViewMap());
-    } else {
-        this.m_grStronghold = null;
-        this.m_grIntel = null;
     }
 }
 
-// Minimapa.
 @wrapMethod(MinimapPOIMappinController)
 protected final func UpdateIcon() -> Void {
     wrappedMethod();
     GRApplyMappinIcon(this.GetMappin(), this.iconWidget, GRStrongholdMappinData.ViewMinimap());
 }
 
-// Marcador flotante en el mundo.
 @wrapMethod(QuestMappinController)
 protected func UpdateIcon() -> Void {
     wrappedMethod();
     GRApplyMappinIcon(this.GetMappin(), this.iconWidget, GRStrongholdMappinData.ViewWorld());
 }
 
-// Tooltip del mapa grande: OutpostVariant usa el de la NCPD ("Presunta actividad del crimen organizado"). Ese widget
-// solo muestra el titulo (no tiene texto de descripcion enlazado): se cambia por "Guarida (<banda>)".
+// The strongholds use their own variant (so the game can filter them with the STRONGHOLDS checkbox), which has no
+// world UI profile of its own: give them the one the game uses for OutpostVariant, as they had before.
+@wrapMethod(WorldMappinsContainerController)
+public func CreateMappinUIProfile(mappin: wref<IMappin>, mappinVariant: gamedataMappinVariant, customData: ref<MappinControllerCustomData>) -> MappinUIProfile {
+    if Equals(mappinVariant, gamedataMappinVariant.CPO_PingDoorVariant) {
+        if IsDefined(GRStrongholdMappinData.Of(mappin)) || (IsDefined(mappin) && IsDefined(mappin.GetScriptData() as GRIntelMappinData)) {
+            return wrappedMethod(mappin, gamedataMappinVariant.OutpostVariant, customData);
+        }
+    }
+    return wrappedMethod(mappin, mappinVariant, customData);
+}
+
+// The strongholds no longer use the police (NCPD scanner) tooltip: with their own variant the map opens the generic
+// tooltip, which would say "Unknown" without this.
+// Gang banner at the bottom of the stronghold tooltip, built the same way Virtual Atelier Delivery adds its picture
+// (a small widget parented to the tooltip's main content). Atlas: gangretaliation\gui\stronghold_banners.inkatlas,
+// one part per gang named like the gang in lowercase (animals, barghest, maelstrom, scavengers, sixthstreet,
+// tygerclaws, valentinos, voodooboys, wraiths), 680x288 each.
+@addField(WorldMapTooltipController)
+private let m_grBanner: wref<inkCompoundWidget>;
+
+@wrapMethod(WorldMapTooltipController)
+protected cb func OnInitialize() -> Bool {
+    let result: Bool = wrappedMethod();
+    let root: ref<inkCompoundWidget> = this.GetRootCompoundWidget();
+    if !IsDefined(root) {
+        return result;
+    }
+    let content: ref<inkCompoundWidget> = root.GetWidgetByPathName(n"tooltip/tooltipFlex/mainLayout/content/mainContent") as inkCompoundWidget;
+    if !IsDefined(content) {
+        return result;
+    }
+    let banner: ref<inkCanvas> = new inkCanvas();
+    banner.SetName(n"grStrongholdBanner");
+    banner.SetSize(680.0, 288.0);
+    banner.SetAnchor(inkEAnchor.BottomRight);
+    banner.SetAnchorPoint(1.0, 1.0);
+    banner.SetMargin(inkMargin(0.0, 0.0, 32.0, 16.0));
+    banner.SetAffectsLayoutWhenHidden(false);
+    banner.SetVisible(false);
+    let image: ref<inkImage> = new inkImage();
+    image.SetName(n"image");
+    image.SetSize(680.0, 288.0);
+    image.Reparent(banner);
+    banner.Reparent(content);
+    this.m_grBanner = banner;
+    return result;
+}
+
+@wrapMethod(WorldMapTooltipController)
+protected final func Reset() -> Void {
+    wrappedMethod();
+    if IsDefined(this.m_grBanner) {
+        this.m_grBanner.SetVisible(false);
+    }
+}
+
+@wrapMethod(WorldMapTooltipController)
+public func SetData(const data: script_ref<WorldMapTooltipData>, menu: ref<WorldMapMenuGameController>) -> Void {
+    wrappedMethod(data, menu);
+    if IsDefined(this.m_grBanner) {
+        this.m_grBanner.SetVisible(false);
+    }
+    if !IsDefined(menu) || Deref(data).isCollection {
+        return;
+    }
+    let mark: wref<GRStrongholdMappinData> = GRStrongholdMappinData.Of(Deref(data).mappin);
+    let player: wref<GameObject> = menu.GetPlayer();
+    if !IsDefined(player) {
+        return;
+    }
+    if !IsDefined(mark) {
+        // Knocked-out gang member with intel to extract: the game's tooltip would call it "Cyberpsycho".
+        let intel: wref<GRIntelMappinData> = Deref(data).mappin.GetScriptData() as GRIntelMappinData;
+        let intelCore: ref<GRSystem> = GRSystem.Get(player.GetGame());
+        if IsDefined(intel) && IsDefined(intelCore) {
+            inkTextRef.SetText(this.m_titleText, StrReplace(intelCore.GetText("GR-IntelMapTitle"), "{gang}", GRIntelSystem.GangLabel(intel.gang)));
+            inkTextRef.SetText(this.m_descText, intelCore.GetText("GR-IntelMapDesc"));
+        }
+        return;
+    }
+    let core: ref<GRSystem> = GRSystem.Get(player.GetGame());
+    if !IsDefined(core) {
+        return;
+    }
+    let title: String = StrReplace(core.GetText("GR-StrongholdMapTitle"), "{gang}", GRIntelSystem.GangLabel(mark.gang));
+    inkTextRef.SetText(this.m_titleText, title);
+    inkTextRef.SetText(this.m_descText, core.GetText("GR-StrongholdMapDesc"));
+    let settings: ref<GRSettings> = GRSettings.Get(player.GetGame());
+    let showBanner: Bool = !IsDefined(settings) || settings.strongholdBanner;
+    if showBanner && IsDefined(this.m_grBanner) {
+        let banner: ref<inkImage> = this.m_grBanner.GetWidgetByPathName(n"image") as inkImage;
+        if IsDefined(banner) {
+            banner.SetAtlasResource(r"gangretaliation\\gui\\stronghold_banners.inkatlas");
+            banner.SetTexturePart(StringToName(StrLower(mark.gang)));
+            this.m_grBanner.SetVisible(true);
+        }
+    }
+    mark.LogOnce(GRStrongholdMappinData.ViewTooltip());
+}
+
 @wrapMethod(WorldMapPoliceTooltipController)
 public func SetData(const data: script_ref<WorldMapTooltipData>, menu: ref<WorldMapMenuGameController>) -> Void {
     wrappedMethod(data, menu);
@@ -1704,127 +1615,9 @@ public func SetData(const data: script_ref<WorldMapTooltipData>, menu: ref<World
     mark.LogOnce(GRStrongholdMappinData.ViewTooltip());
 }
 
-// -----------------------------------------------------------------------------
-// Filtro "GUARIDAS" del mapa grande (lista del filtro rapido PERSONALIZADA).
-// - La casilla es un MappinUIFilterGroup_Record propio (WorldMap.GRStrongholdFilterGroup, intel.yaml) agregado a
-//   WorldMap.WorldMapCustomFiltersList; el juego arma la lista desde ese record y guarda la casilla en su mascara de
-//   filtros (Has/Set/ClearCustomFilter) con el valor de GRStronghold.MapFilter().
-// - El juego decide que marcador entra en cada filtro por su variante (lista "mappins" del grupo): las guaridas son
-//   OutpostVariant (grupo ESCANER NCPD) y el icono de intel HuntForPsychoVariant (grupo CIBERPSICOPATA). No se les
-//   cambia la variante (de ella salen color, tooltip, minimapa y marcador del mundo): el grupo propio no tiene
-//   variantes y la visibilidad de los marcadores del mod se decide aca, por la marca de su scriptData.
-// - El controlador de cada marcador calcula si se ve en PlayHideShowAnim con inCustomFilter (lo pone el motor). El
-//   wrapper lo pisa solo durante esa llamada y solo en los marcadores del mod: guarida = casilla GUARIDAS; intel =
-//   siempre visible. Solo con el filtro rapido PERSONALIZADA: con TODO, CURROS, etc. decide el juego, igual que antes.
-// - El menu del mapa avisa a GRStronghold el estado (filtro rapido + casilla) y reaplica los marcadores del mod.
-// -----------------------------------------------------------------------------
 
-// 0 = decide el juego (no es del mod, o el filtro rapido no es PERSONALIZADA); 1 = se ve; 2 = oculto.
-public func GRMapFilterState(stronghold: wref<GRStrongholdMappinData>, intel: wref<GRIntelMappinData>) -> Int32 {
-    if !IsDefined(stronghold) && !IsDefined(intel) {
-        return 0;
-    }
-    let system: ref<GRStronghold> = GRStronghold.Get(GetGameInstance());
-    if !IsDefined(system) || !system.IsMapCustom() {
-        return 0;
-    }
-    if IsDefined(intel) {
-        intel.LogFilter();
-        return 1;
-    }
-    let shown: Bool = system.IsMapFilterOn();
-    stronghold.LogFilter(shown);
-    return shown ? 1 : 2;
-}
-
-// Sin filtro activo (TODO), en el mapa de viaje rapido o en un grupo de marcadores no se toca nada.
-@wrapMethod(BaseWorldMapMappinController)
-private final func PlayHideShowAnim() -> Void {
-    if this.isFastTravelEnabled || this.IsCollection() {
-        wrappedMethod();
-        return;
-    }
-    // PROTOTYPE: when GUARIDAS is the only box checked, the game sees no real filter and reports hasCustomFilter=false
-    // for our markers, which used to skip this override (strongholds stayed hidden). Our own markers now go through it anyway.
-    let ours: Bool = IsDefined(this.m_grStronghold) || IsDefined(this.m_grIntel);
-    if !ours {
-        // PROTOTYPE: GUARIDAS is the only box checked (the game reports no other active filter, so it would show
-        // everything): hide every other marker, as any real filter would.
-        let sys: ref<GRStronghold> = GRStronghold.Get(GetGameInstance());
-        if !this.hasCustomFilter && IsDefined(sys) && sys.IsMapCustom() && sys.IsMapFilterOn() {
-            let prevIn: Bool = this.inCustomFilter;
-            this.hasCustomFilter = true;
-            this.inCustomFilter = false;
-            wrappedMethod();
-            this.inCustomFilter = prevIn;
-            this.hasCustomFilter = false;
-        } else {
-            wrappedMethod();
-        }
-        return;
-    }
-    let state: Int32 = GRMapFilterState(this.m_grStronghold, this.m_grIntel);
-    if state == 0 {
-        wrappedMethod();
-        return;
-    }
-    let savedHas: Bool = this.hasCustomFilter;
-    if state == 2 && !savedHas {
-        // PROTOTYPE: GUARIDAS unchecked AND the game reports no other active filter = nothing selected, so the map
-        // shows everything; our markers must show too instead of being hidden.
-        state = 1;
-    }
-    // Se devuelve el valor del motor al terminar: los campos son suyos.
-    let saved: Bool = this.inCustomFilter;
-    this.hasCustomFilter = true;
-    this.inCustomFilter = state == 1;
-    wrappedMethod();
-    this.inCustomFilter = saved;
-    this.hasCustomFilter = savedHas;
-}
-
-// Reaplica el filtro en este marcador si es del mod. true = era del mod.
-@addMethod(BaseWorldMapMappinController)
-public func GRReplayMapFilter() -> Bool {
-    if this.IsCollection() {
-        return false;
-    }
-    if !IsDefined(this.m_grStronghold) && !IsDefined(this.m_grIntel) {
-        return false;
-    }
-    this.PlayHideShowAnim();
-    return true;
-}
-
-// Para el motor los marcadores del mod no cambian cuando se toca la casilla GUARIDAS (el grupo no tiene variantes) y
-// no esta comprobado que les avise (OnFiltersChanged): se reaplican a mano despues de cada cambio de filtro.
-@addMethod(WorldMapMenuGameController)
-private func GRRefreshMapFilter(reason: String) -> Void {
-    let container: wref<inkCompoundWidget> = this.GetSpawnContainer();
-    if !IsDefined(container) {
-        return;
-    }
-    let count: Int32 = container.GetNumChildren();
-    let refreshed: Int32 = 0;
-    let i: Int32 = 0;
-    while i < count {
-        let widget: wref<inkWidget> = container.GetWidgetByIndex(i);
-        if IsDefined(widget) {
-            let controller: wref<BaseWorldMapMappinController> = widget.GetController() as BaseWorldMapMappinController;
-            if IsDefined(controller) && controller.GRReplayMapFilter() {
-                refreshed += 1;
-            }
-        }
-        i += 1;
-    }
-    if count > 0 {
-        GRLog("Mapa: filtro reaplicado (" + reason + ") en " + IntToString(refreshed) + " marcadores del mod, de "
-            + IntToString(count) + " en el mapa");
-    }
-}
-
-// Al abrir el mapa: la primera vez en cada partida se marca la casilla GUARIDAS (despues manda el jugador; el juego
-// guarda la mascara en el perfil al cerrar el mapa, salvo en el mapa de viaje rapido: ahi no se marca nada).
+// The STRONGHOLDS checkbox is handled by the game itself: the strongholds use their own marker variant
+// (Mappins.GRStrongholdVariant, see tweaks/GangRetaliation/intel.yaml) listed in WorldMap.GRStrongholdFilterGroup.
 @wrapMethod(WorldMapMenuGameController)
 protected cb func OnInitialize() -> Bool {
     let result: Bool = wrappedMethod();
@@ -1840,80 +1633,32 @@ protected cb func OnInitialize() -> Bool {
     return result;
 }
 
-// Cambio de filtro rapido (TODO / CURROS / PUNTOS DE SERVICIO / PERSONALIZADA).
-@wrapMethod(WorldMapMenuGameController)
-protected cb func OnQuickFilterChanged(filterGroup: wref<MappinUIFilterGroup_Record>) -> Bool {
-    let system: ref<GRStronghold> = GRStronghold.Get(GetGameInstance());
-    if IsDefined(system) && IsDefined(filterGroup) {
-        let filterType: wref<WorldMapFilter_Record> = filterGroup.FilterType();
-        let custom: Bool = IsDefined(filterType) && Equals(filterType.Type(), gamedataWorldMapFilter.CustomFilter);
-        system.SetMapFilter(custom, this.HasCustomFilter(GRStronghold.MapFilter()));
-    }
-    let result: Bool = wrappedMethod(filterGroup);
-    this.GRRefreshMapFilter("filtro rapido");
-    return result;
-}
-
-// Casilla marcada o desmarcada (raton, teclado o mando: todos pasan por aca).
-@wrapMethod(WorldMapMenuGameController)
-private final func UpdateCustomFilter(filter: gamedataWorldMapFilter, enable: Bool) -> Void {
-    let ours: Bool = Equals(filter, GRStronghold.MapFilter());
-    if ours {
-        let system: ref<GRStronghold> = GRStronghold.Get(GetGameInstance());
-        if IsDefined(system) {
-            system.SetMapFilter(system.IsMapCustom(), enable);
-        }
-    }
-    wrappedMethod(filter, enable);
-    if ours {
-        this.GRRefreshMapFilter("casilla GUARIDAS");
-    }
-}
-
-// -----------------------------------------------------------------------------
-// Intel: V le extrae datos a un pandillero tirado (accion "Extraer datos", r6/tweaks/GangRetaliation/intel.yaml).
-// - Elegibles: los Nemesis siempre; de los pandilleros comunes, uno al azar por combate (GRDetection avisa).
-// - Al bajar de su linea de huida quedan inconscientes (en vez de huir) y con el estado GangRetaliation.IntelTarget,
-//   que es el prereq de la accion. Si mueren de un golpe, no hay intel.
-// - La extraccion dura 3 s (barra del HUD del juego, cable colgando); se corta si V se aleja o el NPC muere.
-// - Al terminar suma intel a la banda (comun 5, Soldado 10, Teniente 25, Jefe 50; tope 100). Al 100 % la guarida
-//   sale en el mapa (GRStronghold.RefreshMappins).
-// -----------------------------------------------------------------------------
 public class GRIntelSystem extends ScriptableSystem {
-    // % de intel por banda, paralelo a Gangs(). Partidas viejas: vacio = 0 en todas.
     private persistent let m_values: array<Int32>;
 
-    // Moneda de cada Nemesis en este combate (se tira una sola vez): true = huye, false = cae para extraer.
     private let m_coinIds: array<EntityID>;
     private let m_coinFlee: array<Bool>;
 
-    // Combate actual (GRDetection lo vacia con ResetFight): pandilleros comunes vistos y el elegido.
     private let m_fightSeen: array<EntityID>;
     private let m_fightChosen: EntityID;
     private let m_hasChosen: Bool;
-    // El elegido ya cayo: no se elige otro en este combate.
     private let m_chosenUsed: Bool;
 
-    // Extraccion en curso (una sola a la vez).
     private let m_active: Bool;
     private let m_target: EntityID;
     private let m_gang: String;
     private let m_rank: Int32;
     private let m_start: Float;
 
-    // Icono sobre cada cuerpo extraible (arrays paralelos, uno por NPC). La marca del scriptData se guarda aca para
-    // que no se libere mientras el mappin exista. No se guardan en la partida: al cargar empiezan vacios.
     private let m_markIds: array<EntityID>;
     private let m_markMappins: array<NewMappinID>;
     private let m_markData: array<ref<GRIntelMappinData>>;
-    // Ya hay una revision de iconos agendada (GRIntelCall.Marks, una por segundo mientras quede alguno).
     private let m_markPolling: Bool;
 
     public static func Get(gi: GameInstance) -> ref<GRIntelSystem> {
         return GameInstance.GetScriptableSystemsContainer(gi).Get(n"GangRetaliation.GRIntelSystem") as GRIntelSystem;
     }
 
-    // Fin de la sesion (salir al menu, cargar otra partida): no quedan mappins colgados de NPC que ya no estan.
     private func OnDetach() {
         let count: Int32 = ArraySize(this.m_markIds);
         let i: Int32 = 0;
@@ -1930,8 +1675,6 @@ public class GRIntelSystem extends ScriptableSystem {
         }
     }
 
-    // Slot de UI de los NPC (hueso Spine3, el pecho): sigue al cuerpo aunque caiga en ragdoll. El juego cuelga ahi el
-    // icono de botin de los cuerpos, 0.16 m arriba; este va mas alto para no taparlo.
     public static func MarkHeight() -> Float {
         return 0.55;
     }
@@ -1956,7 +1699,6 @@ public class GRIntelSystem extends ScriptableSystem {
         return 4.0;
     }
 
-    // Intel que da cada rango (0 = pandillero comun).
     public static func AmountFor(rank: Int32) -> Int32 {
         if rank >= 3 {
             return 50;
@@ -1983,7 +1725,6 @@ public class GRIntelSystem extends ScriptableSystem {
         return "comun";
     }
 
-    // Los mismos nombres que usa CET (names.lua).
     public static func GangLabel(gang: String) -> String {
         if Equals(gang, "TygerClaws") {
             return "Tyger Claws";
@@ -2024,8 +1765,6 @@ public class GRIntelSystem extends ScriptableSystem {
         return this.GetIntel(gang) >= 100;
     }
 
-    // Un lugar por banda antes de escribir. La lista va a una variable: ArraySize(GRIntelSystem.Gangs()) sobre el
-    // resultado de la funcion daba 0, nunca se rellenaba y cada escritura caia fuera del array (el intel no se sumaba).
     private func EnsureValues() {
         let gangs: array<String> = GRIntelSystem.Gangs();
         let count: Int32 = ArraySize(gangs);
@@ -2034,7 +1773,6 @@ public class GRIntelSystem extends ScriptableSystem {
         }
     }
 
-    // Suma intel (tope 100). Avisa el nuevo % y, al llegar a 100, que la guarida quedo localizada.
     public func AddIntel(gang: String, amount: Int32, reason: String) -> Int32 {
         let index: Int32 = this.GangIndex(gang);
         if index < 0 || amount <= 0 {
@@ -2057,7 +1795,6 @@ public class GRIntelSystem extends ScriptableSystem {
         return after;
     }
 
-    // La guarida ya se encontro (V llego a ella o la tomo): queda en el mapa aunque falte intel. Sin aviso.
     public func MarkLocated(gang: String, reason: String) {
         let index: Int32 = this.GangIndex(gang);
         if index < 0 || this.IsLocated(gang) {
@@ -2068,7 +1805,6 @@ public class GRIntelSystem extends ScriptableSystem {
         GRLog("Intel: guarida de " + gang + " localizada (" + reason + ")");
     }
 
-    // La banda se mudo de guarida (GRStronghold.Relocate): hay que volver a encontrarla. Sin aviso al jugador.
     public func ResetIntel(gang: String, reason: String) {
         let index: Int32 = this.GangIndex(gang);
         if index < 0 {
@@ -2083,7 +1819,6 @@ public class GRIntelSystem extends ScriptableSystem {
         GRLog("Intel: " + gang + " " + IntToString(before) + "% -> 0% (" + reason + ")");
     }
 
-    // --- Combate (lo llama GRDetection en el hilo principal) ---
 
     public func OnFightReset() {
         ArrayClear(this.m_coinIds);
@@ -2093,8 +1828,6 @@ public class GRIntelSystem extends ScriptableSystem {
         this.m_chosenUsed = false;
     }
 
-    // Pandillero comun que entra a la pelea: el k-esimo pasa a ser el elegido con probabilidad 1/k (uno al azar
-    // entre todos los del combate, sin saber cuantos van a ser).
     public func NoteCombatant(npc: ref<ScriptedPuppet>) {
         if !IsDefined(npc) || this.m_chosenUsed || StrLen(GRDetection.GetGang(npc)) == 0 || this.NemesisRank(npc) > 0 {
             return;
@@ -2112,7 +1845,6 @@ public class GRIntelSystem extends ScriptableSystem {
         }
     }
 
-    // Si es elegible y bajo de su linea de huida, queda inconsciente y marcado para extraer. True si lo tiro.
     public func TryKnockOut(npc: ref<ScriptedPuppet>, health: Float, threshold: Float) -> Bool {
         if !IsDefined(npc) || npc.IsDead() || GRDetection.IsNeutralized(npc) || health <= 0.0 || health > threshold {
             return false;
@@ -2128,7 +1860,6 @@ public class GRIntelSystem extends ScriptableSystem {
             }
             this.m_chosenUsed = true;
         } else {
-            // Nemesis: mitad y mitad, una sola moneda por Nemesis y por combate. "Huye" deja la huida de siempre.
             if this.FleeCoin(npc) {
                 return false;
             }
@@ -2141,7 +1872,6 @@ public class GRIntelSystem extends ScriptableSystem {
         return true;
     }
 
-    // --- Icono sobre el cuerpo extraible (todo en el hilo principal: llega por GRDetectionCall / GRIntelCall) ---
 
     private func MarkIndex(id: EntityID) -> Int32 {
         let i: Int32 = 0;
@@ -2154,18 +1884,31 @@ public class GRIntelSystem extends ScriptableSystem {
         return -1;
     }
 
-    // Mappin que sigue al NPC. HuntForPsychoVariant + DefaultStaticMappin es lo que ya usa el marcador de Nemesis: se
-    // ve en el mundo y en el minimapa y no esta en la lista de la NCPD que el minimapa oculta (OutpostVariant si).
+    // After loading a save the status effect (and the extract prompt) is still on the NPC, but the map markers are
+    // runtime-only: put the marker back for NPCs that still carry the intel state.
+    public func RestoreMark(npc: ref<ScriptedPuppet>) {
+        if !IsDefined(npc) || npc.IsDead() || !ScriptedPuppet.IsUnconscious(npc)
+            || !StatusEffectSystem.ObjectHasStatusEffect(npc, GRIntelSystem.TargetEffect()) {
+            return;
+        }
+        let gang: String = GRDetection.GetGang(npc);
+        if StrLen(gang) == 0 {
+            return;
+        }
+        this.AddMark(npc, gang, this.NemesisRank(npc));
+    }
+
     private func AddMark(npc: ref<ScriptedPuppet>, gang: String, rank: Int32) {
         let id: EntityID = npc.GetEntityID();
         if this.MarkIndex(id) >= 0 {
             return;
         }
         let mark: ref<GRIntelMappinData> = new GRIntelMappinData();
+        mark.gang = gang;
         mark.label = gang + " (" + GRIntelSystem.RankName(rank) + ") " + TDBID.ToStringDEBUG(npc.GetRecordID());
         let data: MappinData;
-        data.mappinType = t"Mappins.DefaultStaticMappin";
-        data.variant = gamedataMappinVariant.HuntForPsychoVariant;
+        data.mappinType = t"Mappins.GRStrongholdMappinDefinition";
+        data.variant = gamedataMappinVariant.CPO_PingDoorVariant;
         data.active = true;
         data.visibleThroughWalls = true;
         data.scriptData = mark;
@@ -2196,12 +1939,10 @@ public class GRIntelSystem extends ScriptableSystem {
         }
     }
 
-    // Lo llama GRDetection cuando muere cualquier NPC (ya en el hilo principal).
     public func OnNPCDeath(id: EntityID) {
         this.RemoveMark(id, "el NPC murio");
     }
 
-    // Por que el NPC ya no lleva icono ("" = lo sigue llevando).
     private func MarkGoneReason(id: EntityID) -> String {
         let npc: ref<ScriptedPuppet> = GameInstance.FindEntityByID(this.GetGameInstance(), id) as ScriptedPuppet;
         if !IsDefined(npc) {
@@ -2219,8 +1960,6 @@ public class GRIntelSystem extends ScriptableSystem {
         return "";
     }
 
-    // Revision de los iconos (GRIntelCall.Marks, una por segundo mientras quede alguno): cubre lo que no avisa nadie
-    // (el cuerpo se descarga, el NPC se levanta, pierde el estado IntelTarget).
     public func OnMarksTick() {
         this.m_markPolling = false;
         let i: Int32 = ArraySize(this.m_markIds) - 1;
@@ -2237,7 +1976,6 @@ public class GRIntelSystem extends ScriptableSystem {
         }
     }
 
-    // True = huye. Se tira la primera vez que baja de su linea de huida en este combate y despues se respeta.
     private func FleeCoin(npc: ref<ScriptedPuppet>) -> Bool {
         let id: EntityID = npc.GetEntityID();
         let i: Int32 = 0;
@@ -2270,13 +2008,11 @@ public class GRIntelSystem extends ScriptableSystem {
         return Max(1, spawner.GetNemesisRank(npc.GetEntityID()));
     }
 
-    // --- Extraccion ---
 
     private func Now() -> Float {
         return EngineTime.ToFloat(GameInstance.GetSimTime(this.GetGameInstance()));
     }
 
-    // V eligio "Extraer datos" (llega por GRIntelCall, ya en el hilo principal; el juego lo manda muchas veces).
     public func OnExtractRequested(id: EntityID) {
         if this.m_active {
             return;
@@ -2343,7 +2079,6 @@ public class GRIntelSystem extends ScriptableSystem {
         GRIntelCall.Send(this.GetGameInstance(), GRIntelCall.Tick(), this.m_target, 0.1);
     }
 
-    // Cierra la barra (sin cable). El NPC queda inconsciente en el piso; si se corto, V puede volver a intentarlo.
     private func Stop(done: Bool, reason: String) {
         this.m_active = false;
         let bar: ref<IBlackboard> = this.ProgressBar();
@@ -2377,8 +2112,6 @@ public class GRIntelSystem extends ScriptableSystem {
     }
 }
 
-// El juego completa la accion en hilos de trabajo, y muchas veces seguidas: aca solo se agenda; GRIntelSystem la
-// procesa en el hilo principal y se queda con la primera.
 public class GRIntelCall extends DelayCallback {
     public let gi: GameInstance;
     public let kind: Int32;
@@ -2386,7 +2119,6 @@ public class GRIntelCall extends DelayCallback {
 
     public static func Extract() -> Int32 { return 0; }
     public static func Tick() -> Int32 { return 1; }
-    // Revision de los iconos de intel (entityID no se usa).
     public static func Marks() -> Int32 { return 2; }
 
     public static func Send(gi: GameInstance, kind: Int32, id: EntityID, delay: Float) {
@@ -2414,8 +2146,6 @@ public class GRIntelCall extends DelayCallback {
     }
 }
 
-// La accion no esta en ningun record Character.*: se suma a los NPC inconscientes marcados para intel. Solo se
-// consultan estados del NPC (nativo): esto puede correr fuera del hilo principal.
 @wrapMethod(ScriptedPuppetPS)
 public final const func GetValidChoices(const actions: script_ref<array<wref<ObjectAction_Record>>>, const context: script_ref<GetActionsContext>,
         objectActionsCallbackController: wref<gameObjectActionsCallbackController>, checkPlayerQuickHackList: Bool, choices: script_ref<array<InteractionChoice>>) -> Void {
@@ -2427,9 +2157,12 @@ public final const func GetValidChoices(const actions: script_ref<array<wref<Obj
     if !IsDefined(owner) || owner.IsDead() || !ScriptedPuppet.IsUnconscious(owner) {
         return;
     }
-    // "Extraer datos" mientras tenga IntelTarget. Sin TweakXL (o sin el .yaml) no hay record: nada.
     let extra: array<wref<ObjectAction_Record>>;
     if StatusEffectSystem.ObjectHasStatusEffect(owner, GRIntelSystem.TargetEffect()) {
+        let intelSystem: ref<GRIntelSystem> = GRIntelSystem.Get(owner.GetGame());
+        if IsDefined(intelSystem) {
+            intelSystem.RestoreMark(owner);
+        }
         let extract: wref<ObjectAction_Record> = TweakDBInterface.GetObjectActionRecord(GRIntelSystem.ActionID());
         if IsDefined(extract) {
             ArrayPush(extra, extract);
@@ -2440,7 +2173,18 @@ public final const func GetValidChoices(const actions: script_ref<array<wref<Obj
     }
 }
 
-// "Extraer datos" no tiene subida (activationTime vacio): el juego la completa enseguida. Solo se agenda.
+@wrapMethod(ScriptedPuppet)
+protected cb func OnGameAttached() -> Bool {
+    let result: Bool = wrappedMethod();
+    if StatusEffectSystem.ObjectHasStatusEffect(this, GRIntelSystem.TargetEffect()) {
+        let intelSystem: ref<GRIntelSystem> = GRIntelSystem.Get(this.GetGame());
+        if IsDefined(intelSystem) {
+            intelSystem.RestoreMark(this);
+        }
+    }
+    return result;
+}
+
 @wrapMethod(BaseScriptableAction)
 public func CompleteAction(gameInstance: GameInstance) -> Void {
     wrappedMethod(gameInstance);

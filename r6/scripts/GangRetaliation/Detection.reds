@@ -11,17 +11,11 @@ public class GRCandidate {
     public let health: Float;
     public let position: Vector4;
     public let fleeing: Bool;
-    // Ya huyo en esta pelea (aunque StopFlee lo haya hecho volver): si sobrevive, escapo.
     public let fled: Bool;
-    // Generado por Drug Dealer: si desaparece, lo borro DD (Purge), no escapo.
     public let ddSpawn: Bool;
-    // Donde empezo a huir: la correa de 30 m de un NPC del mundo se mide desde aca, no desde V.
     public let fleeOrigin: Vector4;
-    // Segundos seguidos (ticks de 1 s) que V no lo ve.
     public let unseen: Float;
-    // V le pego mientras estaba escondido (estar en m_hiding = escondido: neutral y quieto).
     public let discovered: Bool;
-    // Huye con la reaccion nativa del juego (modo H): no se le mandan ordenes de movimiento, la cortarian.
     public let nativeFlee: Bool;
 }
 
@@ -44,7 +38,6 @@ public class GRDetection extends ScriptableSystem {
 
     private let m_promoted: array<EntityID>;
 
-    // IDs y no referencias: un NPC a medio descargar deja una referencia rota; el ID se busca cada vez.
     private let m_combatants: array<EntityID>;
 
     private let m_someoneFled: Bool;
@@ -57,10 +50,7 @@ public class GRDetection extends ScriptableSystem {
     private let m_pendingFlee: EntityID;
     private let m_hasPendingFlee: Bool;
 
-    // NPCs del mundo escondidos tras huir (ver UpdateHiding).
     private let m_hiding: array<ref<GRCandidate>>;
-    // Quienes huyeron en esta sesion. No se borra con ResetFight: si el combate termina mientras
-    // corre y despues vuelve a pelear, sigue contando como huido.
     private let m_fledIds: array<EntityID>;
 
     public func GRProfState() -> String {
@@ -73,7 +63,6 @@ public class GRDetection extends ScriptableSystem {
     }
 
     private func OnAttach() {
-        // G (terror + correr): el que mejor anduvo en la prueba del usuario (2026-11-05).
         this.m_fleeMode = 7;
     }
 
@@ -114,10 +103,6 @@ public class GRDetection extends ScriptableSystem {
         return NotEquals(GRDetection.GetGang(npc), "");
     }
 
-    // Drones, mechs, robots y androides con afiliacion de banda (drones de Maelstrom/Wraiths/Barghest,
-    // Minotauros y droides de Barghest): no son personas, no pueden ser Nemesis ni huir. En TweakDB todo
-    // lo demas de las 9 bandas es Human. Sin tipo en el record (NPC de otro mod) no se descarta.
-    // Solo lee TweakDB: se puede llamar desde los hooks de golpe.
     public static func IsMachineRecord(record: wref<Character_Record>) -> Bool {
         if !IsDefined(record) || !IsDefined(record.CharacterType()) {
             return false;
@@ -133,12 +118,10 @@ public class GRDetection extends ScriptableSystem {
         return IsDefined(npc) && GRDetection.IsMachineRecord(npc.GetRecord());
     }
 
-    // Por el texto del record guardado de un Nemesis ("Character.maelstrom_base_drone_wyvern").
     public static func IsMachineRecordID(recordID: String) -> Bool {
         return GRDetection.IsMachineRecord(TweakDBInterface.GetCharacterRecord(TDBID.Create(recordID)));
     }
 
-    // Jackie (Valentino) y otros acompañantes: un golpe de V por error no los vuelve candidatos.
     public static func IsPlayerAlly(npc: ref<ScriptedPuppet>) -> Bool {
         if !IsDefined(npc) {
             return false;
@@ -251,7 +234,6 @@ public class GRDetection extends ScriptableSystem {
         ArrayClear(this.m_combatants);
         this.m_someoneFled = false;
         this.m_hasPendingFlee = false;
-        // Intel: el "un pandillero comun por combate" vuelve a empezar.
         let intel: ref<GRIntelSystem> = GRIntelSystem.Get(this.GetGameInstance());
         if IsDefined(intel) {
             intel.OnFightReset();
@@ -283,8 +265,6 @@ public class GRDetection extends ScriptableSystem {
         if alive != 1 {
             return;
         }
-        // m_combatants solo tiene a los que pegaron o recibieron golpes: si V ve a otros enemigos
-        // (llegando, detras de una cobertura), no es el ultimo. No gasta la huida: se reintenta.
         let others: Int32 = this.CountOtherThreats(last);
         if others > 0 {
             this.Debug("Huida esperada: quedan " + IntToString(others) + " amenazas mas");
@@ -310,13 +290,10 @@ public class GRDetection extends ScriptableSystem {
             this.m_someoneFled = true;
             this.m_pendingFlee = last.GetEntityID();
             this.m_hasPendingFlee = true;
-            // Huye a los 0.1 s, fuera de este evento. Antes esperaba al tick de 1 s de CET y V
-            // a veces lo remataba antes de que corriera. El tick queda de respaldo.
             GRDetectionCall.SendDelayed(this.GetGameInstance(), GRDetectionCall.RunFlee(), last.GetEntityID(), 0.1);
         }
     }
 
-    // Hostiles vivos que V tiene registrados, sin contar a "last" (lo mismo que usa el panel del HUD).
     private func CountOtherThreats(last: ref<ScriptedPuppet>) -> Int32 {
         let player: ref<PlayerPuppet> = GetPlayer(this.GetGameInstance());
         if !IsDefined(player) || !IsDefined(player.GetTargetTrackerComponent()) {
@@ -327,8 +304,6 @@ public class GRDetection extends ScriptableSystem {
         let names: String = "";
         for location in tracked {
             let npc: ref<ScriptedPuppet> = location.entity as ScriptedPuppet;
-            // Solo los que de verdad pelean cerca. Antes contaba cualquier hostil registrado (uno lejos o
-            // quieto) y la huida esperaba para siempre ("quedan 1 amenazas mas" durante todo el combate).
             if IsDefined(npc) && npc.GetEntityID() != last.GetEntityID() && !GRDetection.IsNeutralized(npc)
                 && NPCPuppet.IsInCombat(npc)
                 && Vector4.Distance(npc.GetWorldPosition(), player.GetWorldPosition()) < 40.0 {
@@ -361,7 +336,6 @@ public class GRDetection extends ScriptableSystem {
         ArrayPush(this.m_fledIds, id);
     }
 
-    // V ve al NPC: ninguna pared entre los ojos de V y el pecho del NPC.
     private func PlayerSees(npc: ref<ScriptedPuppet>) -> Bool {
         let player: ref<PlayerPuppet> = GetPlayer(this.GetGameInstance());
         let spawner: ref<GRSpawner> = GRSpawner.Get(this.GetGameInstance());
@@ -371,7 +345,6 @@ public class GRDetection extends ScriptableSystem {
         return spawner.HasLineOfSight(player, npc.GetWorldPosition());
     }
 
-    // "" = este pandillero puede huir si queda ultimo en pie. Lo usan la huida y la linea de huida del HUD.
     public func GetFleeBlocker(npc: ref<ScriptedPuppet>) -> String {
         let gi: GameInstance = this.GetGameInstance();
         let settings: ref<GRSettings> = GRSettings.Get(gi);
@@ -388,7 +361,6 @@ public class GRDetection extends ScriptableSystem {
         if VehicleComponent.IsMountedToVehicle(gi, npc) || VehicleComponent.IsMountedToVehicle(gi, GetPlayer(gi)) {
             return "vehicle";
         }
-        // Los generados por el mod (escoltas de emboscada) nunca son de una mision: la mision seguida no los frena.
         let ownSpawn: Bool = IsDefined(spawner) && spawner.IsOwnSpawn(npc.GetEntityID());
         if IsDefined(spawner) && (spawner.IsInScene() || (!ownSpawn && spawner.IsStoryQuestNearby())) {
             return "scene or story quest nearby";
@@ -416,9 +388,6 @@ public class GRDetection extends ScriptableSystem {
         this.MakeFleeMode(npc, -1);
     }
 
-    // forcedMode: -1 = normal (modo elegido para los spawns propios, 0 para los del mundo). El boton de
-    // debug fuerza el modo elegido en el panel para cualquier NPC (experimento: que sistema del juego
-    // hace huir de verdad a un pandillero).
     private func MakeFleeMode(npc: ref<ScriptedPuppet>, forcedMode: Int32) {
         if !IsDefined(npc) || !npc.IsAttached() || VehicleComponent.IsMountedToVehicle(this.GetGameInstance(), npc) {
             return;
@@ -437,18 +406,13 @@ public class GRDetection extends ScriptableSystem {
 
         let puppet: ref<NPCPuppet> = npc as NPCPuppet;
         let player: ref<PlayerPuppet> = GetPlayer(this.GetGameInstance());
-        // NPCs del mundo (pueden ser de una mision): sin estado de miedo, que hace que el juego los
-        // descargue. Solo corren y se esconden.
         let ownSpawn: Bool = this.IsOwnSpawn(npc.GetEntityID());
-        // Los del mundo, sin estado de miedo (modos B/C/E): hace que el juego los descargue.
         let mode: Int32 = forcedMode >= 0 ? forcedMode : this.m_fleeMode;
         if forcedMode < 0 && !ownSpawn && (mode == 1 || mode == 2 || mode == 4) {
             mode = 6;
         }
         if IsDefined(puppet) && IsDefined(player) && IsDefined(puppet.GetAttitudeAgent()) && IsDefined(puppet.GetAIControllerComponent()) {
             this.ApplyFleeMode(puppet, player, mode);
-            // Modo H: si la reaccion nativa arranco, corre a la vista y no hay flash ni desaparicion.
-            // Si el juego no la acepto (sin componente de reacciones), sigue con el flash de siempre.
             if mode == 7 {
                 let reactions: ref<ReactionManagerComponent> = puppet.GetStimReactionComponent();
                 candidate.nativeFlee = IsDefined(reactions) && reactions.GRForceFlee(player);
@@ -460,8 +424,6 @@ public class GRDetection extends ScriptableSystem {
             spawner.HideMarkers(npc.GetEntityID());
         }
         if !candidate.nativeFlee {
-            // Flash: V queda ciega un momento y en ese rato el que huye desaparece (Vanish). Antes corria y
-            // la IA del juego lo teletransportaba o lo devolvia a pelear a la vista de V.
             if IsDefined(player) {
                 let blind: TweakDBID = GRBlindEffect();
                 StatusEffectHelper.ApplyStatusEffect(player, blind);
@@ -476,15 +438,6 @@ public class GRDetection extends ScriptableSystem {
         this.Debug("Huye el ultimo en pie (modo " + IntToString(mode) + "): " + candidate.gang + " vida " + FloatToString(candidate.health) + "%");
     }
 
-    // Modos de huida. 0-2 son los de siempre; 3-6 son experimentos con sistemas del juego (2026-11-05):
-    // con "neutral + correr" la IA de combate lo devolvia a pelear apenas V le pegaba o lo seguia viendo.
-    //   0 A: neutral + correr         1 B: estado de miedo          2 C: A + B
-    //   3 D: borrar amenazas (como el hackeo Memory Wipe: ClearThreats + estado alerta) + A
-    //   4 E: borrar amenazas + B + A
-    //   5 F: retirada nativa (stat CanRetreat, sigue hostil; la usa la policia ante MaxTac)
-    //   6 G: estimulo de terror directo (como huyen los civiles) + A
-    //   7 H: reaccion nativa Flee forzada (GRForceFlee, como They Will Remember) + neutral, sin orden de
-    //        correr (la orden cortaria la reaccion) y sin flash (2026-11-10)
     private func ApplyFleeMode(puppet: ref<NPCPuppet>, player: ref<PlayerPuppet>, mode: Int32) {
         if mode == 7 {
             puppet.GetAttitudeAgent().SetAttitudeTowards(player.GetAttitudeAgent(), EAIAttitude.AIA_Neutral);
@@ -521,8 +474,6 @@ public class GRDetection extends ScriptableSystem {
         return IsDefined(spawner) && spawner.IsOwnSpawn(id);
     }
 
-    // Vuelve a pelear (escolta trabada o escondido descubierto). Sigue marcado como huido.
-    // Se llama desde el tick, nunca desde un evento de golpe o muerte.
     private func StopFlee(npc: ref<ScriptedPuppet>, candidate: ref<GRCandidate>, reason: String) {
         candidate.fleeing = false;
         let player: ref<PlayerPuppet> = GetPlayer(this.GetGameInstance());
@@ -541,26 +492,19 @@ public class GRDetection extends ScriptableSystem {
         this.Debug("Huida cortada: " + reason + " (" + candidate.gang + ")");
     }
 
-    // NPC del mundo al final de su correa: se queda neutral y quieto (no sale de la zona, por si es
-    // de una mision). Si sigue vivo al terminar el combate, es Nemesis (fled). Sigue en m_hiding aun
-    // despues de ascender: si V lo encuentra y le pega, vuelve a pelear (ver UpdateHiding).
     private func Hide(npc: ref<ScriptedPuppet>, candidate: ref<GRCandidate>) {
         candidate.fleeing = false;
         let puppet: ref<NPCPuppet> = npc as NPCPuppet;
-        // Con la huida nativa no se lo frena: sigue corriendo y el juego lo descarga cuando queda lejos.
         if IsDefined(puppet) && !candidate.nativeFlee {
             GRMoveTo(puppet, npc.GetWorldPosition(), moveMovementType.Walk, 1.0);
         }
         ArrayPush(this.m_hiding, candidate);
         let player: ref<PlayerPuppet> = GetPlayer(this.GetGameInstance());
         if IsDefined(player) && !player.IsInCombat() {
-            // El combate ya termino mientras corria: no hay otro fin de combate que lo registre.
             this.Promote(candidate, "fled");
             this.Debug("Escondido con el combate terminado: " + candidate.gang);
             return;
         }
-        // Que el fin de combate lo encuentre aunque la lista se haya reiniciado mientras corria
-        // (UpsertCandidate lo crea con fled = HasFled, ya marcado en MakeFlee).
         this.UpsertCandidate(npc);
         this.Debug("Se esconde: " + candidate.gang + " a " + FloatToString(this.DistanceToPlayer(npc)) + " m de V");
     }
@@ -575,8 +519,6 @@ public class GRDetection extends ScriptableSystem {
         while i >= 0 {
             let candidate: ref<GRCandidate> = this.m_hiding[i];
             let npc: ref<ScriptedPuppet> = this.FindPuppet(candidate.entityID);
-            // Ya ascendido (fin de combate): se lo sigue mientras V este cerca, para que un golpe de V
-            // lo despierte. Antes se soltaba y quedaba neutral y quieto toda la sesion.
             let done: Bool = false;
             if !IsDefined(npc) {
                 if !candidate.ddSpawn {
@@ -604,7 +546,6 @@ public class GRDetection extends ScriptableSystem {
         }
     }
 
-    // Huyendo o escondido ahora mismo. Lo usa ProvokeIdle para no devolverlo al combate.
     public func IsRunningAway(id: EntityID) -> Bool {
         if IsDefined(this.FindHiding(id)) {
             return true;
@@ -664,8 +605,6 @@ public class GRDetection extends ScriptableSystem {
                         candidate.unseen += 1.0;
                     }
                     if this.IsOwnSpawn(candidate.entityID) {
-                        // Escapa al perderse de vista (3 s sin verlo y a mas de 25 m) o al pasar 50 m.
-                        // Antes bastaban 25 s aunque V lo tuviera a la vista a 10 m.
                         if (candidate.unseen >= 3.0 && distance > 25.0) || distance > 50.0 {
                             this.Promote(candidate, "fled");
                             done = true;
@@ -676,10 +615,6 @@ public class GRDetection extends ScriptableSystem {
                             }
                         }
                     } else {
-                        // Un NPC del mundo puede ser necesario para una mision: si se aleja, el juego lo
-                        // descarga y la mision queda sin terminar. Se esconde en cuanto V lo pierde de
-                        // vista (2 s, a mas de 15 m de donde empezo), o a 50 m de ahi, o a los 25 s.
-                        // Antes se escondia a 30 m aunque V lo estuviera mirando.
                         let run: Float = Vector4.Distance(npc.GetWorldPosition(), candidate.fleeOrigin);
                         if (candidate.unseen >= 2.0 && run > 15.0) || run > 50.0 || elapsed > 25.0 {
                             this.Hide(npc, candidate);
@@ -697,9 +632,6 @@ public class GRDetection extends ScriptableSystem {
         this.UpdateHiding();
     }
 
-    // Fin de la huida con flash, mientras V esta ciega: escapo y es Nemesis (fled). Spawn propio: se borra.
-    // Del mundo: no se puede borrar algo que no genero el mod, asi que se lo manda a unos 80 m, lejos de V
-    // (ahi el juego lo descarga solo). Sigue en m_hiding: si V lo encuentra y le pega, vuelve a pelear.
     private func VanishFleeing(id: EntityID) {
         let index: Int32 = -1;
         let i: Int32 = 0;
@@ -738,9 +670,6 @@ public class GRDetection extends ScriptableSystem {
         }
         let player: ref<PlayerPuppet> = GetPlayer(gi);
         if IsDefined(player) {
-            // Solo a un punto validado (ver GRSafeTeleportSpot). Antes, sin punto del navmesh se usaba la
-            // linea recta a 80 m y solia caer dentro de un edificio (reporte de Nexus 04/11). Sin punto
-            // seguro no se lo mueve: sigue corriendo y escondido como los demas.
             let pos: Vector4;
             if GRSafeTeleportSpot(npc, player, 80.0, pos) {
                 GameInstance.GetTeleportationFacility(gi).Teleport(npc, pos, Vector4.ToRotation(pos - player.GetWorldPosition()));
@@ -760,7 +689,6 @@ public class GRDetection extends ScriptableSystem {
         this.m_fleeMode = mode;
     }
 
-    // Entrada unica de los eventos del motor. Siempre llega desde GRDetectionCall, en el hilo principal.
     public func HandleCall(kind: Int32, id: EntityID) {
         if kind == GRDetectionCall.CombatEnded() {
             this.OnPlayerCombatEnded();
@@ -799,7 +727,6 @@ public class GRDetection extends ScriptableSystem {
     }
 
     private func OnPlayerHitNPC(npc: ref<ScriptedPuppet>) {
-        // V le pego al escondido (aunque ya sea Nemesis): el tick lo vuelve hostil (no se cambia la IA desde aca).
         let hiding: ref<GRCandidate> = this.FindHiding(npc.GetEntityID());
         if IsDefined(hiding) {
             hiding.discovered = true;
@@ -809,7 +736,6 @@ public class GRDetection extends ScriptableSystem {
             return;
         }
         this.AddCombatant(npc.GetEntityID());
-        // Intel: un elegible que baja de su linea de huida queda inconsciente (no huye); IsNeutralized ya lo descarta.
         let intel: ref<GRIntelSystem> = GRIntelSystem.Get(this.GetGameInstance());
         if IsDefined(intel) {
             intel.NoteCombatant(npc);
@@ -830,14 +756,12 @@ public class GRDetection extends ScriptableSystem {
     private func OnNPCDeath(id: EntityID, byPlayer: Bool) {
         let spawner: ref<GRSpawner> = GRSpawner.Get(this.GetGameInstance());
         if IsDefined(spawner) {
-            // El evento de muerte nombra a V aunque no haya un golpe suyo registrado (auto que explota).
             let nemesisId: Int32 = spawner.GetNemesisId(id);
             if byPlayer && nemesisId > 0 {
                 spawner.RecordHitBy(nemesisId, "v");
             }
             spawner.MarkDead(id);
         }
-        // Intel: si era un cuerpo extraible, se le quita el icono.
         let intel: ref<GRIntelSystem> = GRIntelSystem.Get(this.GetGameInstance());
         if IsDefined(intel) {
             intel.OnNPCDeath(id);
@@ -855,7 +779,6 @@ public class GRDetection extends ScriptableSystem {
             }
             f += 1;
         }
-        // Si no, un escondido muerto cuyo cuerpo se descarga antes del tick se ascendia como "fled".
         let h: Int32 = ArraySize(this.m_hiding) - 1;
         while h >= 0 {
             if this.m_hiding[h].entityID == id {
@@ -863,7 +786,6 @@ public class GRDetection extends ScriptableSystem {
             }
             h -= 1;
         }
-        // El muerto sigue en m_combatants: cuenta para el tamano de la pelea y IsNeutralized lo descarta.
         if this.IsEnabled() {
             this.CheckLastStanding();
         }
@@ -884,7 +806,6 @@ public class GRDetection extends ScriptableSystem {
         let debugLog: Bool = IsDefined(settings) && settings.debugLog;
         let spawner: ref<GRSpawner> = GRSpawner.Get(this.GetGameInstance());
 
-        // Sin copia local: todo corre en el hilo principal y nada borra de m_candidates durante el recorrido.
         let i: Int32 = 0;
         while i < ArraySize(this.m_candidates) {
             let candidate: ref<GRCandidate> = this.m_candidates[i];
@@ -892,7 +813,6 @@ public class GRDetection extends ScriptableSystem {
             if IsDefined(candidate) {
                 npc = GameInstance.FindEntityByID(this.GetGameInstance(), candidate.entityID) as ScriptedPuppet;
             }
-            // Si otro mod lo borró, no hay pruebas de que haya escapado.
             if IsDefined(npc) && !GRDetection.IsNeutralized(npc) && !GRDetection.IsPlayerAlly(npc) {
                 candidate.health = this.GetHealthPercent(npc);
                 candidate.position = npc.GetWorldPosition();
@@ -909,10 +829,6 @@ public class GRDetection extends ScriptableSystem {
                     GRLog(msg);
                 }
 
-                // Un NPC del mundo que huyo vuelve a pelear al alejarse (StopFlee); si sobrevive al combate,
-                // escapo aunque tenga mas vida que el umbral de huida herida.
-                // Un sobrante (emboscada cortada por tiempo en plena pelea) deja de pelear porque el mod lo
-                // pone neutral y lo manda a irse: eso no es escapar herido. Si huyo de verdad, si cuenta.
                 let pacified: Bool = IsDefined(spawner) && spawner.IsLeftover(candidate.entityID) && !candidate.fled;
                 if !pacified && !candidate.fleeing && candidate.health > 0.0 && (candidate.health <= threshold || candidate.fled) {
                     this.Promote(candidate, candidate.fled ? "fled" : "escaped");
@@ -1003,8 +919,6 @@ public class GRDetection extends ScriptableSystem {
         return ArraySize(this.m_candidates);
     }
 
-    // Los avisos esperan si V esta en una escena de mision (tier 3-5: cinematicas, recuerdos de Johnny),
-    // en una danza cerebral o en un menu. Tier 1-2 (calle, departamento) si se muestran.
     public func CanNotify() -> Bool {
         let gi: GameInstance = this.GetGameInstance();
         let player: ref<PlayerPuppet> = GetPlayer(gi);
@@ -1025,7 +939,6 @@ public class GRDetection extends ScriptableSystem {
         return true;
     }
 
-    // Por defecto al registro lateral (sin sonido ni vibracion); el aviso grande del centro es opcional.
     public func Notify(text: String) {
         let settings: ref<GRSettings> = GRSettings.Get(this.GetGameInstance());
         if !IsDefined(settings) || !settings.notifyCenter {
@@ -1041,9 +954,6 @@ public class GRDetection extends ScriptableSystem {
     }
 }
 
-// Golpes, muertes y cambios de combate llegan desde hilos de trabajo del motor, a veces varios a la vez
-// (una escopeta contra un grupo). Si tocaran las listas de GRDetection desde ahi, dos hilos las modifican
-// juntos y el juego crashea. Los hooks solo agendan esta llamada; GRDetection la procesa en el hilo principal.
 public class GRDetectionCall extends DelayCallback {
     public let gi: GameInstance;
     public let kind: Int32;
@@ -1078,8 +988,6 @@ public class GRDetectionCall extends DelayCallback {
     }
 }
 
-// Ceguera de la huida: el glitch del hackeo de ceguera de los netrunners enemigos (Reboot Optics contra V).
-// Si ese registro no existe en esta version del juego, la ceguera de las luces cegadoras.
 public func GRBlindEffect() -> TweakDBID {
     let glitch: TweakDBID = t"AIQuickHackStatusEffect.HackBlind";
     if IsDefined(TweakDBInterface.GetStatusEffectRecord(glitch)) {
@@ -1088,11 +996,6 @@ public func GRBlindEffect() -> TweakDBID {
     return t"BaseStatusEffect.Blind";
 }
 
-// Huida nativa (modo H): le pide al arbol de IA la reaccion Flee, la misma con la que corren los civiles,
-// con prioridad por encima del combate. Mandar solo el estimulo de terror (modo G) no alcanza: el preset
-// de un pandillero lo descarta y la reaccion nunca se pide. Es la rama directa de TriggerBehaviorReaction
-// del juego, sin pasar por el estimulo (They Will Remember envuelve ese camino y se queda con los Terror
-// que vienen de V). Devuelve false si no se pudo pedir.
 @addMethod(ReactionManagerComponent)
 public func GRForceFlee(threat: ref<GameObject>) -> Bool {
     let owner: ref<GameObject> = this.GetOwner();
@@ -1111,7 +1014,6 @@ public func GRForceFlee(threat: ref<GameObject>) -> Bool {
     reaction.reactionPriority = 9;
     reaction.reactionBehaviorAIPriority = 7.0;
     reaction.skipInitialAnimation = true;
-    // Tirado en el piso o en un vehiculo: queda pendiente y el juego la dispara al salir de ese estado.
     if this.IsInPendingBehavior() {
         reaction.validTillTimeStamp = EngineTime.ToFloat(GameInstance.GetSimTime(game)) + 10.0;
         this.m_pendingReaction = reaction;
@@ -1132,8 +1034,6 @@ public func GRForceFlee(threat: ref<GameObject>) -> Bool {
     return true;
 }
 
-// Corta la huida nativa (el que no pudo perderse de vista vuelve a pelear): saca las animaciones de
-// panico y le avisa a la tarea de reaccion que termine.
 @addMethod(ReactionManagerComponent)
 public func GRStopFlee() -> Void {
     this.m_desiredReaction = null;
@@ -1145,9 +1045,7 @@ public func GRStopFlee() -> Void {
     }
 }
 
-// Unico armado de AIMoveToCommand del mod (huida, escondite, sobrantes que se van).
 public func GRMoveTo(puppet: ref<NPCPuppet>, pos: Vector4, type: moveMovementType, distance: Float) {
-    // Vector vacio = GRAwayFrom no encontro destino valido: no se manda la orden (ya lo dijo el log).
     if !IsDefined(puppet) || !IsDefined(puppet.GetAIControllerComponent()) || Vector4.IsZero(pos) {
         return;
     }
@@ -1164,10 +1062,6 @@ public func GRMoveTo(puppet: ref<NPCPuppet>, pos: Vector4, type: moveMovementTyp
     puppet.GetAIControllerComponent().SendCommand(move);
 }
 
-// Punto del navmesh (a pie) a unos 'distance' metros del NPC, en la direccion contraria a V. Prueba
-// desvios de hasta 60 grados y distancias mas cortas: el punto en linea recta solia caer dentro de un
-// edificio y el NPC no encontraba camino. Sin punto valido, vector vacio: GRMoveTo no manda la orden y
-// el NPC no se mueve (antes la linea recta sin validar, que podia caer dentro de un edificio).
 public func GRAwayFrom(npc: ref<GameObject>, player: ref<GameObject>, distance: Float) -> Vector4 {
     let offset: Vector4 = npc.GetWorldPosition() - player.GetWorldPosition();
     offset.Z = 0.0;
@@ -1195,11 +1089,6 @@ public func GRAwayFrom(npc: ref<GameObject>, player: ref<GameObject>, distance: 
     return Vector4.EmptyVector();
 }
 
-// Destino seguro para teletransportar a un NPC lejos de V (huida con flash). Mismos candidatos que
-// GRAwayFrom, pero cada punto tiene que estar en el mismo piso (menos de 3 m de altura), no estar
-// pegado a una pared (IsClearSpot), quedar fuera de la vista de V y tener camino a pie desde donde esta
-// el NPC: los interiores cerrados y las azoteas tambien tienen navmesh. Sin punto valido: false y no
-// se usa ningun punto de reemplazo.
 public func GRSafeTeleportSpot(npc: ref<GameObject>, player: ref<PlayerPuppet>, distance: Float, out spot: Vector4) -> Bool {
     let gi: GameInstance = npc.GetGame();
     let nav: ref<NavigationSystem> = GameInstance.GetNavigationSystem(gi);
@@ -1217,7 +1106,6 @@ public func GRSafeTeleportSpot(npc: ref<GameObject>, player: ref<PlayerPuppet>, 
     let from: Vector4 = npc.GetWorldPosition();
     let scales: array<Float> = [1.0, 0.7, 0.45];
     let angles: array<Float> = [0.0, 30.0, -30.0, 60.0, -60.0];
-    // Descartes: sin navmesh, otro piso, pegado a pared, a la vista de V, sin camino a pie.
     let fails: array<Int32> = [0, 0, 0, 0, 0];
     for scale in scales {
         for angle in angles {
@@ -1286,7 +1174,6 @@ public func EvaluateHit(newHitEvent: ref<gameHitEvent>) -> Void {
 
 @wrapMethod(NPCPuppet)
 protected cb func OnDeath(evt: ref<gameDeathEvent>) -> Bool {
-    // Hilo del motor: solo se lee quien provoco la muerte; el dato viaja en la llamada agendada.
     let byPlayer: Bool = IsDefined(evt) && IsDefined(evt.instigator) && evt.instigator.IsPlayer();
     GRDetectionCall.Send(this.GetGame(), byPlayer ? GRDetectionCall.NPCDeathByV() : GRDetectionCall.NPCDeath(), this.GetEntityID());
     return wrappedMethod(evt);

@@ -38,21 +38,48 @@ GangRetaliation.IntelTargetPrereq:
   $base: Takedown.BreachUnconsciousOfficer_inline4
   statusEffect: GangRetaliation.IntelTarget
 
-# Casilla "GUARIDAS" en la lista de filtros del mapa grande (filtro rapido PERSONALIZADA). Misma tecnica que el mod
+# Casilla "GANG RETALIATION" (guaridas e intel) en la lista de filtros del mapa grande (filtro rapido PERSONALIZADA). Misma tecnica que el mod
 # Drug Dealer (credito v1ld): un grupo de filtro propio agregado a la lista del juego.
 # - filterName: clave de texto (Localization.reds, GR-MapFilterStrongholds).
 # - filterType: el enum gamedataWorldMapFilter es nativo y no se puede ampliar. WorldMap.RelicDeviceFilter es un
 #   record del juego (enum RelicDeviceFilter) que ningun grupo usa. Drug Dealer usa VehicleForSaleFilter: no chocan.
 #   Tiene que coincidir con GRStronghold.MapFilter() (Stronghold.reds).
-# - mappins vacio a proposito: las guaridas siguen siendo OutpostVariant (grupo ESCANER NCPD del juego); si esa
-#   variante se pusiera aca, la casilla mostraria tambien todos los puestos de la NCPD. Que marcador obedece a esta
-#   casilla lo decide redscript (wrapper de BaseWorldMapMappinController.PlayHideShowAnim en Stronghold.reds).
+# - mappins: las guaridas y los iconos de intel usan su propia variante de marcador (Mappins.GRStrongholdVariant) y el juego mismo decide
+#   cuando se ven segun la casilla (misma tecnica que Icon Framework). La variante es CPO_PingDoorVariant, una variante
+#   del modo cooperativo cancelado que el juego individual no usa (comprobado: ningun grupo de filtro la lista, solo
+#   Mappins.CPO_PingSystemMappinDefinition). Icon Framework usa CPO_PingGoHereVariant: no chocan.
+WorldMap.GRStrongholdVariant:
+  $type: gamedataMappinVariant_Record
+  enumName: CPO_PingDoorVariant
+
 WorldMap.GRStrongholdFilterGroup:
   $type: MappinUIFilterGroup_Record
   filterName: GR-MapFilterStrongholds
   filterType: WorldMap.RelicDeviceFilter
-  mappins: []
+  mappins:
+    - WorldMap.GRStrongholdVariant
   shouldCollectMappins: false
 
+Mappins.GRStrongholdMappinDefinition:
+  $type: gamedataMappinDefinition_Record
+  showInWorld: true
+  showOnMap: true
+  showOnMinimap: true
+  visibilityRange: 0
+  possibleVariants:
+    - WorldMap.GRStrongholdVariant
+
 WorldMap.WorldMapCustomFiltersList.list:
+  - !append-once WorldMap.GRStrongholdFilterGroup
+
+WorldMap.ZoomLevelImportant.mappinFilterGroups:
+  - !append-once WorldMap.GRStrongholdFilterGroup
+
+WorldMap.ZoomLevelAllMappins.mappinFilterGroups:
+  - !append-once WorldMap.GRStrongholdFilterGroup
+
+WorldMap.ZoomLevelExtraMappins.mappinFilterGroups:
+  - !append-once WorldMap.GRStrongholdFilterGroup
+
+WorldMap.ZoomLevelSubDistricts.mappinFilterGroups:
   - !append-once WorldMap.GRStrongholdFilterGroup

@@ -1,8 +1,5 @@
 module GangRetaliation
 
-// Detecta cuando V duerme en una cama propia (opcion "Dormir" con icono Wait, como Dark Future).
-// Dormir en misiones no pasa por esa opcion, asi que esas ubicaciones nunca cuentan.
-// Solo anota posicion y dia; Lua decide si el sitio pasa a ser casa (2 noches distintas).
 public class GRHomes extends ScriptableSystem {
     private let m_choiceListener: ref<CallbackHandle>;
 

@@ -2,7 +2,6 @@ local Store = {
     path = "data/gang_retaliation.json",
     schema = 1,
     data = nil,
-    -- Sube con cada "Store.dirty = true": el menu se reconstruye solo cuando cambia.
     version = 0,
 }
 
@@ -39,7 +38,6 @@ function Store.load()
     if ok and type(decoded) == "table" and type(decoded.campaigns) == "table" then
         Store.data = decoded
         for key, campaign in pairs(Store.data.campaigns) do
-            -- Antes de 1.3.2 Jackie podia volverse Nemesis por un golpe de V: se borra de partidas viejas.
             if type(campaign.nemeses) == "table" then
                 for i = #campaign.nemeses, 1, -1 do
                     local record = campaign.nemeses[i].recordID
@@ -87,7 +85,6 @@ end
 
 local EMPTY_CAMPAIGN = { nemeses = {} }
 
--- Dev: sitios candidatos para guaridas (archivo aparte, no depende de la campana).
 Store.sitesPath = "data/site_candidates.json"
 
 function Store.loadSites()

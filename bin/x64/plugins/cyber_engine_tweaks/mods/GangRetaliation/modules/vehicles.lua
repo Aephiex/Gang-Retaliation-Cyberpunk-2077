@@ -1,5 +1,3 @@
--- Vehiculos de cada banda para las emboscadas en vehiculo (records base de la TweakDB, sin motos:
--- tienen que entrar el Nemesis y sus escoltas). Animals y 6th Street no tienen coches propios.
 local generic = {
     "Vehicle.v_standard2_archer_hella",
     "Vehicle.v_standard25_villefort_columbus",
@@ -49,7 +47,6 @@ local Vehicles = {
     SixthStreet = generic,
 }
 
--- Probabilidad de que una emboscada llegue en vehiculo (si falla, se intenta a pie).
 Vehicles.chancePercent = 40
 
 function Vehicles.pick(gang)

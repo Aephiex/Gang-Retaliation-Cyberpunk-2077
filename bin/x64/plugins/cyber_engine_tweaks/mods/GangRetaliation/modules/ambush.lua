@@ -15,19 +15,14 @@ function Ambush.hasMetV(n)
     return (n.encounters or 1) > 0 or (n.gigs or 0) > 0 or (n.ambushes or 0) > 0
 end
 
--- Dias de juego que un Nemesis espera despues de escapar de V antes de poder emboscarlo (tiempo para crecer).
 Ambush.escapeRestDays = 1
 
--- today (dia de juego) solo lo pasan las emboscadas: deja fuera a los que escaparon hace menos de
--- escapeRestDays y los devuelve como segundo valor. Sin escapedDay (partidas viejas) no hay espera.
--- noBoss (solo emboscadas): los Jefes no salen a cazar a V, tienen mejores cosas que hacer.
 function Ambush.pick(nemeses, districtGangs, metOnly, today, noBoss)
     local pool, total, resting = {}, 0, {}
     for _, n in ipairs(nemeses) do
         if n.status ~= "dead" and not n.jailedUntil and n.recordID and n.id and (not metOnly or Ambush.hasMetV(n))
             and not (noBoss and n.rank == Hierarchy.BOSS) then
             local since = today and n.escapedDay and (today - n.escapedDay)
-            -- since < 0: se cargo una partida anterior al escape; no se lo deja esperando de mas.
             if since and since >= 0 and since < Ambush.escapeRestDays then
                 table.insert(resting, n)
             else
@@ -88,11 +83,8 @@ function Ambush.pickFromGang(nemeses, gang)
     return Ambush.pick(list, {})
 end
 
--- Casas de V (x, y). Cerca de casa es mas seguro: sin ataques a menos de homeSafe metros
--- (en horizontal, el H10 esta a 120 m de altura) y probabilidad normal a partir de homeFull.
--- El H10 viene de fabrica; el resto se aprende donde V duerme (campaign.homes).
 Ambush.builtinHomes = {
-    { x = -1381.7, y = 1270.8 }, -- H10, Watson
+    { x = -1381.7, y = 1270.8 },
 }
 Ambush.homeSafe = 60
 Ambush.homeFull = 300
@@ -127,7 +119,6 @@ function Ambush.nearHome(campaign)
     return math.random() > factor, distance
 end
 
--- Un sitio pasa a ser casa tras dormir ahi 2 noches distintas (radio homeRadius). Devuelve true si se agrego.
 function Ambush.recordSleep(campaign, x, y, day)
     for _, home in ipairs(Ambush.allHomes(campaign)) do
         if distance2D(x, y, home.x, home.y) < Ambush.homeRadius then return false end
@@ -150,7 +141,6 @@ function Ambush.recordSleep(campaign, x, y, day)
     return false
 end
 
--- Quita la casa aprendida mas cercana a pos (el H10 de fabrica no se puede quitar).
 function Ambush.removeNearestHome(campaign, pos)
     local best, bestDistance = nil, math.huge
     for i, home in ipairs(campaign.homes or {}) do

@@ -1,15 +1,12 @@
+.claude/
+*.log
+*.zip
+__pycache__/
+build/stage/
+
 # IDE (JetBrains): configuración local
-.idea/workspace.xml
-.idea/discord.xml
+.idea/
 
 # Datos de partida que genera la capa CET (solo se versiona la carpeta)
 bin/x64/plugins/cyber_engine_tweaks/mods/GangRetaliation/data/*
 !bin/x64/plugins/cyber_engine_tweaks/mods/GangRetaliation/data/.keep
-
-# Logs
-*.log
-/.idea/GangRetaliation-dev.iml
-/.idea/misc.xml
-/.idea/modules.xml
-/.idea/vcs.xml
-FASE4_ESTADO.md

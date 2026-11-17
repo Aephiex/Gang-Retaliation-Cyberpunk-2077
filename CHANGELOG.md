@@ -1,5 +1,49 @@
 # Changelog - Gang Retaliation
 
+## [1.4.8] - 2026-11-17
+
+### English
+
+#### Changed
+- **Map filter renamed.** The STRONGHOLDS checkbox is now **GANG RETALIATION** and controls both strongholds and intel markers.
+
+#### Fixed
+- **Intel markers.** Knocked-out gang members you can extract data from no longer use the game's "cyberpsycho" skull marker; they share the hidden marker variant strongholds use, with the `codex_glossary` icon. Hovering one shows "{gang} intel target" and a short description. The marker is now restored after loading a save (the extract prompt already survived a reload; the map marker did not).
+
+### Español
+
+#### Cambiado
+- **Filtro del mapa renombrado.** La casilla GUARIDAS ahora es **GANG RETALIATION** y controla tanto las guaridas como los objetivos de intel.
+
+#### Arreglado
+- **Objetivos de intel.** Los pandilleros inconscientes de los que se puede extraer datos ya no usan el marcador de calavera "ciberpsicópata" del juego; comparten la variante de marcador oculta de las guaridas, con el ícono `codex_glossary`. Al pasar el cursor se muestra "Objetivo de intel de {gang}" y una breve descripción. El marcador ahora se restaura al cargar una partida (el aviso de extracción ya sobrevivía a una recarga; el marcador del mapa no).
+
+Thanks to **RedFalcon** for this work.
+
+## [1.4.7] - 2026-11-17
+
+### English
+
+#### Fixed
+- **Crash cycling map filters with Q/E.** The filter code called `GetScriptData()` on marker widgets the game had already freed.
+
+#### Added
+- **Stronghold map marker.** Strongholds use their own marker variant (`CPO_PingDoorVariant`), so the game filters them itself; the old hide/show/replay code was removed. Compatible with Map Icons Framework.
+- **Stronghold map tooltip.** Title "Stronghold ({gang})", description, and a gang banner image at the bottom (new `GangRetaliationBanners.archive`).
+- **Setting "Stronghold map banner"** (on by default) to show or hide the banner.
+
+### Español
+
+#### Arreglado
+- **Crash al cambiar de filtro de mapa con Q/E.** El código del filtro llamaba a `GetScriptData()` sobre widgets de marcador que el juego ya había liberado.
+
+#### Añadido
+- **Marcador de guarida en el mapa.** Las guaridas usan su propia variante de marcador (`CPO_PingDoorVariant`), así que el juego las filtra por sí mismo; se eliminó el código anterior de ocultar/mostrar/repetir. Compatible con Map Icons Framework.
+- **Tooltip de guarida en el mapa.** Título "Guarida ({gang})", descripción, e imagen del banner de la pandilla al final (nuevo `GangRetaliationBanners.archive`).
+- **Ajuste "Banner de guaridas en el mapa"** (activado por defecto) para mostrar u ocultar el banner.
+
+Thanks to **RedFalcon** for this work.
+
 ## [1.4.6] - 2026-11-16
 
 ### English

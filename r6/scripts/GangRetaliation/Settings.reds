@@ -62,6 +62,13 @@ public class GRSettings extends ScriptableSystem {
     @runtimeProperty("ModSettings.mod", "GR-ModName")
     @runtimeProperty("ModSettings.category", "GR-CatGeneral")
     @runtimeProperty("ModSettings.category.order", "10")
+    @runtimeProperty("ModSettings.displayName", "GR-SetStrongholdBanner")
+    @runtimeProperty("ModSettings.description", "GR-SetStrongholdBannerDesc")
+    public let strongholdBanner: Bool = true;
+
+    @runtimeProperty("ModSettings.mod", "GR-ModName")
+    @runtimeProperty("ModSettings.category", "GR-CatGeneral")
+    @runtimeProperty("ModSettings.category.order", "10")
     @runtimeProperty("ModSettings.displayName", "GR-SetNotifyCenter")
     @runtimeProperty("ModSettings.description", "GR-SetNotifyCenterDesc")
     public let notifyCenter: Bool = false;

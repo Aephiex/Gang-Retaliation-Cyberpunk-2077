@@ -1,0 +1,384 @@
+--- a/r6/scripts/GangRetaliation/Stronghold.reds
++++ b/r6/scripts/GangRetaliation/Stronghold.reds
+@@ -194,8 +194,8 @@
+                 let mark: ref<GRStrongholdMappinData> = new GRStrongholdMappinData();
+                 mark.gang = this.m_siteGangs[i];
+                 this.m_siteMarks[i] = mark;
+-                data.mappinType = t"Mappins.DefaultStaticMappin";
+-                data.variant = gamedataMappinVariant.OutpostVariant;
++                data.mappinType = t"Mappins.GRStrongholdMappinDefinition";
++                data.variant = gamedataMappinVariant.CPO_PingDoorVariant;
+                 data.active = true;
+                 data.scriptData = mark;
+                 this.m_siteMappins[i] = GameInstance.GetMappinSystem(this.GetGameInstance()).RegisterMappin(data, this.m_sitePos[i]);
+@@ -1473,37 +1473,11 @@
+     }
+ }
+ 
+-@addField(BaseWorldMapMappinController)
+-private let m_grStronghold: ref<GRStrongholdMappinData>;
+-
+-@addField(BaseWorldMapMappinController)
+-private let m_grIntel: ref<GRIntelMappinData>;
+-
+-@addMethod(BaseWorldMapMappinController)
+-public func GRCacheMappinData() -> Void {
+-    this.m_grStronghold = null;
+-    this.m_grIntel = null;
+-    let mappin: wref<IMappin> = this.GetMappin();
+-    if !IsDefined(mappin) {
+-        return;
+-    }
+-    let data: wref<MappinScriptData> = mappin.GetScriptData();
+-    if !IsDefined(data) {
+-        return;
+-    }
+-    this.m_grStronghold = data as GRStrongholdMappinData;
+-    this.m_grIntel = data as GRIntelMappinData;
+-}
+-
+ @wrapMethod(BaseWorldMapMappinController)
+ protected func UpdateIcon() -> Void {
+     wrappedMethod();
+     if !this.IsCollection() {
+-        this.GRCacheMappinData();
+         GRApplyMappinIcon(this.GetMappin(), this.iconWidget, GRStrongholdMappinData.ViewMap());
+-    } else {
+-        this.m_grStronghold = null;
+-        this.m_grIntel = null;
+     }
+ }
+ 
+@@ -1519,9 +1493,67 @@
+     GRApplyMappinIcon(this.GetMappin(), this.iconWidget, GRStrongholdMappinData.ViewWorld());
+ }
+ 
+-@wrapMethod(WorldMapPoliceTooltipController)
++// The strongholds use their own variant (so the game can filter them with the STRONGHOLDS checkbox), which has no
++// world UI profile of its own: give them the one the game uses for OutpostVariant, as they had before.
++@wrapMethod(WorldMappinsContainerController)
++public func CreateMappinUIProfile(mappin: wref<IMappin>, mappinVariant: gamedataMappinVariant, customData: ref<MappinControllerCustomData>) -> MappinUIProfile {
++    if Equals(mappinVariant, gamedataMappinVariant.CPO_PingDoorVariant) && IsDefined(GRStrongholdMappinData.Of(mappin)) {
++        return wrappedMethod(mappin, gamedataMappinVariant.OutpostVariant, customData);
++    }
++    return wrappedMethod(mappin, mappinVariant, customData);
++}
++
++// The strongholds no longer use the police (NCPD scanner) tooltip: with their own variant the map opens the generic
++// tooltip, which would say "Unknown" without this.
++// Gang banner at the bottom of the stronghold tooltip, built the same way Virtual Atelier Delivery adds its picture
++// (a small widget parented to the tooltip's main content). Atlas: gangretaliation\gui\stronghold_banners.inkatlas,
++// one part per gang named like the gang in lowercase (animals, barghest, maelstrom, scavengers, sixthstreet,
++// tygerclaws, valentinos, voodooboys, wraiths), 680x288 each.
++@addField(WorldMapTooltipController)
++private let m_grBanner: wref<inkCompoundWidget>;
++
++@wrapMethod(WorldMapTooltipController)
++protected cb func OnInitialize() -> Bool {
++    let result: Bool = wrappedMethod();
++    let root: ref<inkCompoundWidget> = this.GetRootCompoundWidget();
++    if !IsDefined(root) {
++        return result;
++    }
++    let content: ref<inkCompoundWidget> = root.GetWidgetByPathName(n"tooltip/tooltipFlex/mainLayout/content/mainContent") as inkCompoundWidget;
++    if !IsDefined(content) {
++        return result;
++    }
++    let banner: ref<inkCanvas> = new inkCanvas();
++    banner.SetName(n"grStrongholdBanner");
++    banner.SetSize(680.0, 288.0);
++    banner.SetAnchor(inkEAnchor.BottomRight);
++    banner.SetAnchorPoint(1.0, 1.0);
++    banner.SetMargin(inkMargin(0.0, 0.0, 32.0, 16.0));
++    banner.SetAffectsLayoutWhenHidden(false);
++    banner.SetVisible(false);
++    let image: ref<inkImage> = new inkImage();
++    image.SetName(n"image");
++    image.SetSize(680.0, 288.0);
++    image.Reparent(banner);
++    banner.Reparent(content);
++    this.m_grBanner = banner;
++    return result;
++}
++
++@wrapMethod(WorldMapTooltipController)
++protected final func Reset() -> Void {
++    wrappedMethod();
++    if IsDefined(this.m_grBanner) {
++        this.m_grBanner.SetVisible(false);
++    }
++}
++
++@wrapMethod(WorldMapTooltipController)
+ public func SetData(const data: script_ref<WorldMapTooltipData>, menu: ref<WorldMapMenuGameController>) -> Void {
+     wrappedMethod(data, menu);
++    if IsDefined(this.m_grBanner) {
++        this.m_grBanner.SetVisible(false);
++    }
+     if !IsDefined(menu) || Deref(data).isCollection {
+         return;
+     }
+@@ -1536,102 +1568,43 @@
+     }
+     let title: String = StrReplace(core.GetText("GR-StrongholdMapTitle"), "{gang}", GRIntelSystem.GangLabel(mark.gang));
+     inkTextRef.SetText(this.m_titleText, title);
+-    mark.LogOnce(GRStrongholdMappinData.ViewTooltip());
+-}
+-
+-
+-public func GRMapFilterState(stronghold: wref<GRStrongholdMappinData>, intel: wref<GRIntelMappinData>) -> Int32 {
+-    if !IsDefined(stronghold) && !IsDefined(intel) {
+-        return 0;
+-    }
+-    let system: ref<GRStronghold> = GRStronghold.Get(GetGameInstance());
+-    if !IsDefined(system) || !system.IsMapCustom() {
+-        return 0;
+-    }
+-    if IsDefined(intel) {
+-        intel.LogFilter();
+-        return 1;
++    inkTextRef.SetText(this.m_descText, core.GetText("GR-StrongholdMapDesc"));
++    let settings: ref<GRSettings> = GRSettings.Get(player.GetGame());
++    let showBanner: Bool = !IsDefined(settings) || settings.strongholdBanner;
++    if showBanner && IsDefined(this.m_grBanner) {
++        let banner: ref<inkImage> = this.m_grBanner.GetWidgetByPathName(n"image") as inkImage;
++        if IsDefined(banner) {
++            banner.SetAtlasResource(r"gangretaliation\\gui\\stronghold_banners.inkatlas");
++            banner.SetTexturePart(StringToName(StrLower(mark.gang)));
++            this.m_grBanner.SetVisible(true);
++        }
+     }
+-    let shown: Bool = system.IsMapFilterOn();
+-    stronghold.LogFilter(shown);
+-    return shown ? 1 : 2;
++    mark.LogOnce(GRStrongholdMappinData.ViewTooltip());
+ }
+ 
+-@wrapMethod(BaseWorldMapMappinController)
+-private final func PlayHideShowAnim() -> Void {
+-    if this.isFastTravelEnabled || this.IsCollection() {
+-        wrappedMethod();
++@wrapMethod(WorldMapPoliceTooltipController)
++public func SetData(const data: script_ref<WorldMapTooltipData>, menu: ref<WorldMapMenuGameController>) -> Void {
++    wrappedMethod(data, menu);
++    if !IsDefined(menu) || Deref(data).isCollection {
+         return;
+     }
+-    let ours: Bool = IsDefined(this.m_grStronghold) || IsDefined(this.m_grIntel);
+-    if !ours {
+-        let sys: ref<GRStronghold> = GRStronghold.Get(GetGameInstance());
+-        if !this.hasCustomFilter && IsDefined(sys) && sys.IsMapCustom() && sys.IsMapFilterOn() {
+-            let prevIn: Bool = this.inCustomFilter;
+-            this.hasCustomFilter = true;
+-            this.inCustomFilter = false;
+-            wrappedMethod();
+-            this.inCustomFilter = prevIn;
+-            this.hasCustomFilter = false;
+-        } else {
+-            wrappedMethod();
+-        }
++    let mark: wref<GRStrongholdMappinData> = GRStrongholdMappinData.Of(Deref(data).mappin);
++    let player: wref<GameObject> = menu.GetPlayer();
++    if !IsDefined(mark) || !IsDefined(player) {
+         return;
+     }
+-    let state: Int32 = GRMapFilterState(this.m_grStronghold, this.m_grIntel);
+-    if state == 0 {
+-        wrappedMethod();
++    let core: ref<GRSystem> = GRSystem.Get(player.GetGame());
++    if !IsDefined(core) {
+         return;
+     }
+-    let savedHas: Bool = this.hasCustomFilter;
+-    if state == 2 && !savedHas {
+-        state = 1;
+-    }
+-    let saved: Bool = this.inCustomFilter;
+-    this.hasCustomFilter = true;
+-    this.inCustomFilter = state == 1;
+-    wrappedMethod();
+-    this.inCustomFilter = saved;
+-    this.hasCustomFilter = savedHas;
+-}
+-
+-@addMethod(BaseWorldMapMappinController)
+-public func GRReplayMapFilter() -> Bool {
+-    if this.IsCollection() {
+-        return false;
+-    }
+-    if !IsDefined(this.m_grStronghold) && !IsDefined(this.m_grIntel) {
+-        return false;
+-    }
+-    this.PlayHideShowAnim();
+-    return true;
++    let title: String = StrReplace(core.GetText("GR-StrongholdMapTitle"), "{gang}", GRIntelSystem.GangLabel(mark.gang));
++    inkTextRef.SetText(this.m_titleText, title);
++    mark.LogOnce(GRStrongholdMappinData.ViewTooltip());
+ }
+ 
+-@addMethod(WorldMapMenuGameController)
+-private func GRRefreshMapFilter(reason: String) -> Void {
+-    let container: wref<inkCompoundWidget> = this.GetSpawnContainer();
+-    if !IsDefined(container) {
+-        return;
+-    }
+-    let count: Int32 = container.GetNumChildren();
+-    let refreshed: Int32 = 0;
+-    let i: Int32 = 0;
+-    while i < count {
+-        let widget: wref<inkWidget> = container.GetWidgetByIndex(i);
+-        if IsDefined(widget) {
+-            let controller: wref<BaseWorldMapMappinController> = widget.GetController() as BaseWorldMapMappinController;
+-            if IsDefined(controller) && controller.GRReplayMapFilter() {
+-                refreshed += 1;
+-            }
+-        }
+-        i += 1;
+-    }
+-    if count > 0 {
+-        GRLog("Mapa: filtro reaplicado (" + reason + ") en " + IntToString(refreshed) + " marcadores del mod, de "
+-            + IntToString(count) + " en el mapa");
+-    }
+-}
+ 
++// The STRONGHOLDS checkbox is handled by the game itself: the strongholds use their own marker variant
++// (Mappins.GRStrongholdVariant, see tweaks/GangRetaliation/intel.yaml) listed in WorldMap.GRStrongholdFilterGroup.
+ @wrapMethod(WorldMapMenuGameController)
+ protected cb func OnInitialize() -> Bool {
+     let result: Bool = wrappedMethod();
+@@ -1647,34 +1620,6 @@
+     return result;
+ }
+ 
+-@wrapMethod(WorldMapMenuGameController)
+-protected cb func OnQuickFilterChanged(filterGroup: wref<MappinUIFilterGroup_Record>) -> Bool {
+-    let system: ref<GRStronghold> = GRStronghold.Get(GetGameInstance());
+-    if IsDefined(system) && IsDefined(filterGroup) {
+-        let filterType: wref<WorldMapFilter_Record> = filterGroup.FilterType();
+-        let custom: Bool = IsDefined(filterType) && Equals(filterType.Type(), gamedataWorldMapFilter.CustomFilter);
+-        system.SetMapFilter(custom, this.HasCustomFilter(GRStronghold.MapFilter()));
+-    }
+-    let result: Bool = wrappedMethod(filterGroup);
+-    this.GRRefreshMapFilter("filtro rapido");
+-    return result;
+-}
+-
+-@wrapMethod(WorldMapMenuGameController)
+-private final func UpdateCustomFilter(filter: gamedataWorldMapFilter, enable: Bool) -> Void {
+-    let ours: Bool = Equals(filter, GRStronghold.MapFilter());
+-    if ours {
+-        let system: ref<GRStronghold> = GRStronghold.Get(GetGameInstance());
+-        if IsDefined(system) {
+-            system.SetMapFilter(system.IsMapCustom(), enable);
+-        }
+-    }
+-    wrappedMethod(filter, enable);
+-    if ours {
+-        this.GRRefreshMapFilter("casilla GUARIDAS");
+-    }
+-}
+-
+ public class GRIntelSystem extends ScriptableSystem {
+     private persistent let m_values: array<Int32>;
+ 
+--- a/r6/scripts/GangRetaliation/Localization.reds
++++ b/r6/scripts/GangRetaliation/Localization.reds
+@@ -39,6 +39,8 @@
+         this.Text("GR-SetMaxPerGangDesc", "How many named enemies each gang hierarchy can hold.");
+         this.Text("GR-SetBossBar", "Nemesis boss bar");
+         this.Text("GR-SetBossBarDesc", "Shows the boss health bar with the Nemesis name when they show up or you hit them. Escorts don't get one.");
++        this.Text("GR-SetStrongholdBanner", "Stronghold map banner");
++        this.Text("GR-SetStrongholdBannerDesc", "Shows the gang's banner picture at the bottom of the stronghold tooltip on the world map.");
+         this.Text("GR-SetNotifyCenter", "Center-screen notifications");
+         this.Text("GR-SetNotifyCenterDesc", "ON: Nemesis updates show as a big warning in the middle of the screen. OFF: they go quietly to the side log (like looted items). Either way they wait until cutscenes, braindances and menus are over.");
+         this.Text("GR-SetEscapeHealth", "Wounded escape threshold (%)");
+@@ -131,6 +133,7 @@
+         this.Text("GR-IntelGained", "{gang} intel: {pct} %");
+         this.Text("GR-IntelLocated", "{gang} stronghold located");
+         this.Text("GR-StrongholdMapTitle", "Stronghold ({gang})");
++        this.Text("GR-StrongholdMapDesc", "Clear the stronghold to scatter and weaken the gang.");
+         this.Text("GR-MapFilterStrongholds", "STRONGHOLDS");
+         this.Text("GR-MenuIntel", "Intel gathered");
+         this.Text("GR-MenuIntelLocated", "Stronghold located");
+@@ -432,6 +435,8 @@
+         this.Text("GR-SetMaxPerGangDesc", "Cuántos enemigos con nombre puede tener la jerarquía de cada banda.");
+         this.Text("GR-SetBossBar", "Barra de jefe de los Némesis");
+         this.Text("GR-SetBossBarDesc", "Muestra la barra de vida de jefe con el nombre del Némesis cuando aparece o le pegas. La escolta no la tiene.");
++        this.Text("GR-SetStrongholdBanner", "Banner de las guaridas en el mapa");
++        this.Text("GR-SetStrongholdBannerDesc", "Muestra la imagen de la pandilla al final del tooltip de la guarida en el mapa del mundo.");
+         this.Text("GR-SetNotifyCenter", "Avisos en el centro de la pantalla");
+         this.Text("GR-SetNotifyCenterDesc", "SÍ: las novedades de los Némesis salen como aviso grande en el centro. NO: van discretas al registro lateral (como los objetos saqueados). En los dos casos esperan a que terminen las escenas, las danzas cerebrales y los menús.");
+         this.Text("GR-SetEscapeHealth", "Vida para huida herida (%)");
+@@ -524,6 +529,7 @@
+         this.Text("GR-IntelGained", "Intel de {gang}: {pct} %");
+         this.Text("GR-IntelLocated", "Guarida de {gang} localizada");
+         this.Text("GR-StrongholdMapTitle", "Guarida ({gang})");
++        this.Text("GR-StrongholdMapDesc", "Limpia la guarida para dispersar y debilitar a la pandilla.");
+         this.Text("GR-MapFilterStrongholds", "GUARIDAS");
+         this.Text("GR-MenuIntel", "Intel conseguida");
+         this.Text("GR-MenuIntelLocated", "Guarida localizada");
+--- a/r6/scripts/GangRetaliation/Settings.reds
++++ b/r6/scripts/GangRetaliation/Settings.reds
+@@ -62,6 +62,13 @@
+     @runtimeProperty("ModSettings.mod", "GR-ModName")
+     @runtimeProperty("ModSettings.category", "GR-CatGeneral")
+     @runtimeProperty("ModSettings.category.order", "10")
++    @runtimeProperty("ModSettings.displayName", "GR-SetStrongholdBanner")
++    @runtimeProperty("ModSettings.description", "GR-SetStrongholdBannerDesc")
++    public let strongholdBanner: Bool = true;
++
++    @runtimeProperty("ModSettings.mod", "GR-ModName")
++    @runtimeProperty("ModSettings.category", "GR-CatGeneral")
++    @runtimeProperty("ModSettings.category.order", "10")
+     @runtimeProperty("ModSettings.displayName", "GR-SetNotifyCenter")
+     @runtimeProperty("ModSettings.description", "GR-SetNotifyCenterDesc")
+     public let notifyCenter: Bool = false;
+--- a/r6/tweaks/GangRetaliation/intel.yaml
++++ b/r6/tweaks/GangRetaliation/intel.yaml
+@@ -44,15 +44,42 @@
+ # - filterType: el enum gamedataWorldMapFilter es nativo y no se puede ampliar. WorldMap.RelicDeviceFilter es un
+ #   record del juego (enum RelicDeviceFilter) que ningun grupo usa. Drug Dealer usa VehicleForSaleFilter: no chocan.
+ #   Tiene que coincidir con GRStronghold.MapFilter() (Stronghold.reds).
+-# - mappins vacio a proposito: las guaridas siguen siendo OutpostVariant (grupo ESCANER NCPD del juego); si esa
+-#   variante se pusiera aca, la casilla mostraria tambien todos los puestos de la NCPD. Que marcador obedece a esta
+-#   casilla lo decide redscript (wrapper de BaseWorldMapMappinController.PlayHideShowAnim en Stronghold.reds).
++# - mappins: las guaridas usan su propia variante de marcador (Mappins.GRStrongholdVariant) y el juego mismo decide
++#   cuando se ven segun la casilla (misma tecnica que Icon Framework). La variante es CPO_PingDoorVariant, una variante
++#   del modo cooperativo cancelado que el juego individual no usa (comprobado: ningun grupo de filtro la lista, solo
++#   Mappins.CPO_PingSystemMappinDefinition). Icon Framework usa CPO_PingGoHereVariant: no chocan.
++WorldMap.GRStrongholdVariant:
++  $type: gamedataMappinVariant_Record
++  enumName: CPO_PingDoorVariant
++
+ WorldMap.GRStrongholdFilterGroup:
+   $type: MappinUIFilterGroup_Record
+   filterName: GR-MapFilterStrongholds
+   filterType: WorldMap.RelicDeviceFilter
+-  mappins: []
++  mappins:
++    - WorldMap.GRStrongholdVariant
+   shouldCollectMappins: false
+ 
++Mappins.GRStrongholdMappinDefinition:
++  $type: gamedataMappinDefinition_Record
++  showInWorld: true
++  showOnMap: true
++  showOnMinimap: true
++  visibilityRange: 0
++  possibleVariants:
++    - WorldMap.GRStrongholdVariant
++
+ WorldMap.WorldMapCustomFiltersList.list:
+   - !append-once WorldMap.GRStrongholdFilterGroup
++
++WorldMap.ZoomLevelImportant.mappinFilterGroups:
++  - !append-once WorldMap.GRStrongholdFilterGroup
++
++WorldMap.ZoomLevelAllMappins.mappinFilterGroups:
++  - !append-once WorldMap.GRStrongholdFilterGroup
++
++WorldMap.ZoomLevelExtraMappins.mappinFilterGroups:
++  - !append-once WorldMap.GRStrongholdFilterGroup
++
++WorldMap.ZoomLevelSubDistricts.mappinFilterGroups:
++  - !append-once WorldMap.GRStrongholdFilterGroup

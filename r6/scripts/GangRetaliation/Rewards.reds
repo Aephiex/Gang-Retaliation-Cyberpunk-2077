@@ -1,28 +1,18 @@
 module GangRetaliation
 
-// Armas de Jefe: cuando V mata a un Jefe se lleva su arma, una sola vez por Jefe. Es un arma base segun la
-// banda, marcada iconica, escalada al nivel de V y con un bono elemental guardado en la partida.
-// El nombre propio ("Carnage de Rex") no se guarda: sale del nombre del Jefe, que Lua pasa en cada sesion.
 public class GRRewards extends ScriptableSystem {
-    // Listas paralelas: m_nemesisIds[i] es el Jefe que dio el arma m_ids[i] (0 = sin Jefe, datos de la prueba vieja).
     private persistent let m_ids: array<ItemID>;
     private persistent let m_nemesisIds: array<Int32>;
-    // Jefes que ya dieron su arma. No se vacia aunque el arma se borre despues.
     private persistent let m_given: array<Int32>;
-    // Nivel de Aumento de cada arma, paralelo a m_ids: de 1 (I) a 5 (V). Un 0 (armas de antes del Aumento) cuenta como I.
     private persistent let m_levels: array<Int32>;
 
-    // Nombres de los Jefes (Lua, cada sesion). redscript no deja guardar String en la partida.
     private let m_nameIds: array<Int32>;
     private let m_names: array<String>;
 
-    // Resultado de PreviewBossWeapon (el arma que daria un Jefe vivo).
     private let m_pvElement: Int32;
     private let m_pvBonus: Int32;
-    // Indice en la foto del arma que quedo del ultimo Fuse; solo vale justo despues de un Fuse que devolvio true.
     private let m_fusedIndex: Int32;
 
-    // Foto de las armas de Jefe que V tiene ahora, para la vista Arsenal del menu (Snapshot). Listas paralelas; no se guardan.
     private let m_oIds: array<ItemID>;
     private let m_oNemesis: array<Int32>;
     private let m_oGangs: array<String>;
@@ -38,13 +28,10 @@ public class GRRewards extends ScriptableSystem {
         return GameInstance.GetScriptableSystemsContainer(gi).Get(n"GangRetaliation.GRRewards") as GRRewards;
     }
 
-    // Armas registradas (esten o no en el inventario). GRSystem lo loguea al restaurar la partida.
     public func GetRegisteredCount() -> Int32 {
         return ArraySize(this.m_ids);
     }
 
-    // Diagnostico: lo que le llego a este sistema al cargar la partida, dicho por el mismo (el orden en que el
-    // juego restaura cada sistema no se conoce: la cuenta que lee GRSystem podria ser de antes de restaurar este).
     private func OnRestored(saveVersion: Int32, gameVersion: Int32) {
         GRLog("Recompensas: partida restaurada, " + IntToString(ArraySize(this.m_ids)) + " arma(s) registrada(s), "
             + IntToString(ArraySize(this.m_given)) + " Jefe(s) que ya dieron arma");
@@ -64,7 +51,6 @@ public class GRRewards extends ScriptableSystem {
             }
             i += 1;
         }
-        // Si las listas quedaron desparejas (no deberia), se empieza de cero antes de agregar.
         if ArraySize(this.m_nameIds) != ArraySize(this.m_names) {
             this.ClearNames();
         }
@@ -72,13 +58,10 @@ public class GRRewards extends ScriptableSystem {
         ArrayPush(this.m_names, name);
     }
 
-    // True si ese Nemesis ya dio su arma: Lua lo usa para seguir pasando su nombre aunque haya bajado de rango.
     public func HasGiven(nemesisId: Int32) -> Bool {
         return ArrayContains(this.m_given, nemesisId);
     }
 
-    // "" si el ItemID no es un arma de Jefe o no se conoce al Jefe (otra campana): queda el nombre del juego.
-    // Lo llaman los wraps de la UI: tiene que ser barato para los items que no son nuestros.
     public func GetCustomName(id: ItemID) -> String {
         let count: Int32 = ArraySize(this.m_ids);
         let i: Int32 = 0;
@@ -94,8 +77,6 @@ public class GRRewards extends ScriptableSystem {
         return "";
     }
 
-    // Da a V el arma del Jefe. Devuelve el nombre del arma, o "" si no dio nada (ya la habia dado, banda sin arma, fallo).
-    // force = true saltea el "una sola vez por Jefe" (boton de desarrollo).
     public func GiveBossWeapon(nemesisId: Int32, gang: String, traitsCsv: String, escapes: Int32, force: Bool) -> String {
         if nemesisId <= 0 {
             return "";
@@ -130,17 +111,14 @@ public class GRRewards extends ScriptableSystem {
         let pct: Int32 = this.RollBonus(nemesisId, escapes);
         let bonusPct: Float = Cast<Float>(pct);
 
-        // 1) Iconica antes que nada: Black Market Arsenal ignora las iconicas (RPGManager.IsItemIconic).
         let ok: Bool = stats.AddSavedModifier(objID, RPGManager.CreateStatModifier(gamedataStatType.IsItemIconic, gameStatModifierType.Additive, 1.0));
 
-        // 2) Nivel de V, igual que el juego con las recompensas del punto de entrega (dropPointController.swift:178-187).
         let playerLevel: Float = stats.GetStatValue(Cast<StatsObjectID>(player.GetEntityID()), gamedataStatType.PowerLevel);
         stats.RemoveAllModifiers(objID, gamedataStatType.PowerLevel, true);
         if !stats.AddSavedModifier(objID, RPGManager.CreateStatModifier(gamedataStatType.PowerLevel, gameStatModifierType.Additive, playerLevel)) {
             ok = false;
         }
 
-        // 3) Bono elemental, calculado sobre el dano ya escalado.
         let baseName: String = this.BaseDamageName(data, stats);
         let baseValue: Float = this.BaseDamage(data, stats);
         let bonus: Float = baseValue * bonusPct / 100.0;
@@ -148,8 +126,6 @@ public class GRRewards extends ScriptableSystem {
             ok = false;
         }
 
-        // 4) Probabilidad de aplicar el estado. Escala 0-100: el juego la divide por 100 y la compara con un azar 0-1
-        //    (damageSystem.swift, ApplyStatusEffectByApplicationRate). Vale para disparos y golpes cuerpo a cuerpo.
         if !stats.AddSavedModifier(objID, RPGManager.CreateStatModifier(this.ElementRateStat(element), gameStatModifierType.Additive, bonusPct)) {
             ok = false;
         }
@@ -162,7 +138,6 @@ public class GRRewards extends ScriptableSystem {
             ArrayPush(this.m_given, nemesisId);
         }
 
-        // Si Lua todavia no paso el nombre del Jefe, el aviso usa el nombre del arma base.
         let name: String = this.GetCustomName(id);
         if StrLen(name) == 0 {
             name = this.WeaponBaseName(id);
@@ -175,12 +150,6 @@ public class GRRewards extends ScriptableSystem {
         return name;
     }
 
-    // -------------------------------------------------------------------------
-    // Aumento: fusionar una copia con el arma principal de la misma banda
-    // -------------------------------------------------------------------------
-    // mainIndex y copyIndex son indices de la foto (Snapshot); keepElement, el elemento que queda (el de una de las dos).
-    // La copia se destruye; el arma principal sube un nivel (+5 % de dano por nivel) y su bono pasa a ser el mas alto
-    // de los dos x 1,10 (tope 60). Devuelve false, con el motivo en el log, si no se puede. Al terminar rehace la foto.
     public func Fuse(mainIndex: Int32, copyIndex: Int32, keepElement: Int32) -> Bool {
         this.m_fusedIndex = -1;
         if !this.OwnedValid(mainIndex) || !this.OwnedValid(copyIndex) {
@@ -248,7 +217,6 @@ public class GRRewards extends ScriptableSystem {
         let copyText: String = this.DescribeId(copyId) + " nivel=" + IntToString(copyLevel) + " elemento=" + this.ElementLabel(copyElement)
             + " bono=" + FloatToStringPrec(copyBonus, 1) + "%";
 
-        // 1) La copia se destruye antes de tocar el arma: si el juego no la quita, no cambia nada (y no se puede repetir gratis).
         let removed: Bool = ts.RemoveItem(player, copyId, 1);
         if ts.HasItem(player, copyId) {
             GRLog("Recompensas: Aumento ERROR, no se pudo destruir la copia (RemoveItem=" + this.BoolText(removed) + "): sigue registrada y el arma no cambia. "
@@ -262,7 +230,6 @@ public class GRRewards extends ScriptableSystem {
             mainReg -= 1;
         }
 
-        // 2) +5 % de dano por cada nivel que sube. AdditiveMultiplier se suma al multiplicador del stat (1 + suma).
         let objID: StatsObjectID = mainData.GetStatsObjectID();
         let ok: Bool = true;
         let physBefore: Float = this.ReadStat(mainData, stats, gamedataStatType.PhysicalDamage);
@@ -274,8 +241,6 @@ public class GRRewards extends ScriptableSystem {
         }
         let physAfter: Float = this.ReadStat(mainData, stats, gamedataStatType.PhysicalDamage);
 
-        // 3) Elemento y bono con modificadores de diferencia (RemoveAllModifiers podria borrar stats del record).
-        //    El elemento viejo, si cambia, se deja en 0; el que queda se lleva a sus valores nuevos.
         let baseName: String = this.BaseDamageName(mainData, stats);
         let baseValue: Float = this.BaseDamage(mainData, stats);
         let newDamage: Float = baseValue * newBonus / 100.0;
@@ -303,7 +268,6 @@ public class GRRewards extends ScriptableSystem {
             + ", PhysicalDamage " + FloatToStringPrec(physBefore, 2) + " -> " + FloatToStringPrec(physAfter, 2) + ")"
             + " modificadores OK=" + this.BoolText(ok) + " quedan registradas=" + IntToString(ArraySize(this.m_ids))
             + " | ANTES " + before + " | DESPUES " + this.DescribeStats(mainData, stats));
-        // Control del +5 % por nivel: si el motor no lo aplico como se espera, queda dicho en el log.
         if newLevel > oldLevel && physBefore > 0.0 {
             let expected: Float = physBefore * (1.0 + 0.05 * Cast<Float>(newLevel - 1)) / (1.0 + 0.05 * Cast<Float>(oldLevel - 1));
             if AbsF(physAfter - expected) > expected * 0.01 {
@@ -323,23 +287,18 @@ public class GRRewards extends ScriptableSystem {
         return true;
     }
 
-    // Indice en la foto del arma que quedo del ultimo Fuse que salio bien (menor que 0 = ninguna).
     public func GetFusedIndex() -> Int32 {
         return this.m_fusedIndex;
     }
 
-    // Bono que deja un Aumento: el mas alto de los dos x 1,10, redondeado a un decimal, con tope 60.
-    // Publicas las dos: el menu muestra el resultado antes de fusionar con la misma cuenta.
     public func FusedBonus(mainBonus: Float, copyBonus: Float) -> Float {
         return MinF(60.0, Cast<Float>(RoundF(MaxF(mainBonus, copyBonus) * 11.0)) / 10.0);
     }
 
-    // Nivel que deja un Aumento: el mas alto de los dos + 1, hasta V.
     public func FusedLevel(mainLevel: Int32, copyLevel: Int32) -> Int32 {
         return Min(5, Max(mainLevel, copyLevel) + 1);
     }
 
-    // Suma al stat lo que le falta (o le sobra) para valer target.
     private func AddDifference(data: wref<gameItemData>, stats: ref<StatsSystem>, stat: gamedataStatType, target: Float) -> Bool {
         let difference: Float = target - this.ReadStat(data, stats, stat);
         if AbsF(difference) < 0.0001 {
@@ -359,7 +318,6 @@ public class GRRewards extends ScriptableSystem {
         return -1;
     }
 
-    // Nivel de Aumento del arma registrada en index: de 1 a 5 (sin dato = 1).
     private func LevelAt(index: Int32) -> Int32 {
         if index < 0 || index >= ArraySize(this.m_levels) {
             return 1;
@@ -367,12 +325,10 @@ public class GRRewards extends ScriptableSystem {
         return Min(5, Max(1, this.m_levels[index]));
     }
 
-    // Al tope: nivel V y bono 60 %. Un Aumento ya no le daria nada.
     private func IsMaxed(level: Int32, bonus: Float) -> Bool {
         return level >= 5 && bonus >= 59.95;
     }
 
-    // Elemento del arma: su dano elemental mas alto. 0 = Electrico, 1 = Termico, 2 = Quimico, -1 = ninguno.
     private func WeaponElement(data: wref<gameItemData>, stats: ref<StatsSystem>) -> Int32 {
         let element: Int32 = -1;
         let best: Float = 0.0;
@@ -388,7 +344,6 @@ public class GRRewards extends ScriptableSystem {
         return element;
     }
 
-    // Bono elemental en %: el ApplicationRate del elemento del arma (el mismo numero).
     private func WeaponBonus(data: wref<gameItemData>, stats: ref<StatsSystem>, element: Int32) -> Float {
         if element < 0 {
             return 0.0;
@@ -396,7 +351,6 @@ public class GRRewards extends ScriptableSystem {
         return this.ReadStat(data, stats, this.ElementRateStat(element));
     }
 
-    // Dano sobre el que se calcula el bono elemental: PhysicalDamage o, si el arma no tiene, EffectiveDamagePerHit.
     private func BaseDamage(data: wref<gameItemData>, stats: ref<StatsSystem>) -> Float {
         let value: Float = this.ReadStat(data, stats, gamedataStatType.PhysicalDamage);
         if value <= 0.0 {
@@ -412,20 +366,14 @@ public class GRRewards extends ScriptableSystem {
         return "PhysicalDamage";
     }
 
-    // -------------------------------------------------------------------------
-    // El arma que daria un Jefe vivo (panel del Jefe en el menu)
-    // -------------------------------------------------------------------------
-    // Semilla fija por Jefe: el mismo Jefe da siempre el mismo elemento y el mismo bono.
     private func SeedFor(nemesisId: Int32) -> Int32 {
         return ((nemesisId % 100000) * 7919 + 104729) % 1000003;
     }
 
-    // El elemento usa seed / 21 y el bono seed % 21: asi uno no depende del otro.
     private func RollElement(nemesisId: Int32, traitsCsv: String) -> Int32 {
         return this.PickElement(traitsCsv, this.SeedFor(nemesisId) / 21);
     }
 
-    // Bono en %: 20-40 segun el Jefe, +2 por cada vez que se le escapo a V, tope 60.
     private func RollBonus(nemesisId: Int32, escapes: Int32) -> Int32 {
         let pct: Int32 = 20 + (this.SeedFor(nemesisId) % 21) + 2 * Max(escapes, 0);
         if pct > 60 {
@@ -434,8 +382,6 @@ public class GRRewards extends ScriptableSystem {
         return pct;
     }
 
-    // Calcula, sin dar nada, el elemento y el bono del arma que daria ese Jefe (los mismos que usara GiveBossWeapon).
-    // Se leen con GetPreviewElement / GetPreviewBonus. False si la banda no tiene arma.
     public func PreviewBossWeapon(nemesisId: Int32, gang: String, traitsCsv: String, escapes: Int32) -> Bool {
         this.m_pvElement = -1;
         this.m_pvBonus = 0;
@@ -455,12 +401,10 @@ public class GRRewards extends ScriptableSystem {
         return this.m_pvBonus;
     }
 
-    // Nombre del juego del arma base de la banda ("Carnage"), o "" si la banda no tiene.
     public func GetGangWeaponBaseName(gang: String) -> String {
         return this.RecordBaseName(this.WeaponForGang(gang));
     }
 
-    // Tipo del arma base de la banda, ya traducido ("Escopeta"), o "".
     public func GetGangWeaponType(gang: String) -> String {
         let record: ref<Item_Record> = TweakDBInterface.GetItemRecord(this.WeaponForGang(gang));
         if !IsDefined(record) || !IsDefined(record.ItemType()) {
@@ -469,15 +413,10 @@ public class GRRewards extends ScriptableSystem {
         return GetLocalizedText(UIItemsHelper.GetItemTypeKey(record.ItemType().Type()));
     }
 
-    // Nombre propio que tendra el arma de ese Jefe ("Carnage de Rex").
     public func GetBossWeaponName(boss: String, gang: String) -> String {
         return this.FormatName(boss, this.GetGangWeaponBaseName(gang));
     }
 
-    // -------------------------------------------------------------------------
-    // Lectura para el menu (vista Arsenal)
-    // -------------------------------------------------------------------------
-    // Rehace la foto: solo las armas registradas que V tiene en el inventario. El menu la pide al abrir Arsenal.
     public func Snapshot() -> Void {
         ArrayClear(this.m_oIds);
         ArrayClear(this.m_oNemesis);
@@ -502,7 +441,6 @@ public class GRRewards extends ScriptableSystem {
             let id: ItemID = this.m_ids[i];
             let data: wref<gameItemData> = ts.GetItemData(player, id);
             if IsDefined(data) && ts.HasItem(player, id) {
-                // Elemento: el dano elemental mas alto del arma; el bono % es su ApplicationRate (mismo numero).
                 let element: Int32 = this.WeaponElement(data, stats);
                 let bonus: Float = this.WeaponBonus(data, stats, element);
                 let tier: String = GetLocalizedText(UIItemsHelper.QualityToTierString(RPGManager.GetItemQuality(data)));
@@ -534,12 +472,10 @@ public class GRRewards extends ScriptableSystem {
         return index >= 0 && index < ArraySize(this.m_oIds);
     }
 
-    // Clave de la banda ("Maelstrom"), o "" si el record no es de la tabla.
     public func GetOwnedGang(index: Int32) -> String {
         return this.OwnedValid(index) ? this.m_oGangs[index] : "";
     }
 
-    // Nombre propio; si no se conoce al Jefe, el nombre del juego.
     public func GetOwnedName(index: Int32) -> String {
         if !this.OwnedValid(index) {
             return "";
@@ -557,37 +493,30 @@ public class GRRewards extends ScriptableSystem {
         return this.OwnedValid(index) ? ItemID.GetTDBID(this.m_oIds[index]) : TDBID.None();
     }
 
-    // 0 = Electrico, 1 = Termico, 2 = Quimico, -1 = ninguno.
     public func GetOwnedElement(index: Int32) -> Int32 {
         return this.OwnedValid(index) ? this.m_oElements[index] : -1;
     }
 
-    // Bono elemental en % (20-60).
     public func GetOwnedBonus(index: Int32) -> Int32 {
         return this.OwnedValid(index) ? this.m_oBonus[index] : 0;
     }
 
-    // El mismo bono con su decimal (un Aumento lo deja en 41,8 %).
     public func GetOwnedBonusF(index: Int32) -> Float {
         return this.OwnedValid(index) ? this.m_oBonusF[index] : 0.0;
     }
 
-    // Nivel de Aumento: de 1 (I) a 5 (V).
     public func GetOwnedLevel(index: Int32) -> Int32 {
         return this.OwnedValid(index) ? this.m_oLevels[index] : 1;
     }
 
-    // True si un Aumento ya no le daria nada (nivel V y bono 60 %): Fuse lo rechaza.
     public func IsOwnedMaxed(index: Int32) -> Bool {
         return this.OwnedValid(index) && this.IsMaxed(this.m_oLevels[index], this.m_oBonusF[index]);
     }
 
-    // Dano por golpe (EffectiveDamagePerHit).
     public func GetOwnedDamage(index: Int32) -> Float {
         return this.OwnedValid(index) ? this.m_oDamage[index] : 0.0;
     }
 
-    // Texto del juego, ya traducido: "Tier 3+" / "Nivel 3+".
     public func GetOwnedTier(index: Int32) -> String {
         return this.OwnedValid(index) ? this.m_oTiers[index] : "";
     }
@@ -596,7 +525,6 @@ public class GRRewards extends ScriptableSystem {
         return this.OwnedValid(index) && this.m_oEquipped[index];
     }
 
-    // Nombre del Jefe al que se la quito V, o "" si no se conoce (otra campana).
     public func GetOwnedBossName(index: Int32) -> String {
         if !this.OwnedValid(index) {
             return "";
@@ -612,13 +540,10 @@ public class GRRewards extends ScriptableSystem {
         return "";
     }
 
-    // Proporcion (ancho / alto) del icono 2D del arma, para dibujarlo sin deformar.
     public func GetOwnedIconAspect(index: Int32) -> Float {
         return this.OwnedValid(index) ? this.IconAspect(ItemID.GetTDBID(this.m_oIds[index])) : 2.5;
     }
 
-    // Cada icono del juego esta recortado a su arma. Medido en los atlas item_icons0-4 (texturas de 2048x2048):
-    // ancho x alto en pixeles del recorte de cada una. Va junto a la tabla de WeaponForGang: si cambia un arma, cambia aca.
     private func IconAspect(recordID: TweakDBID) -> Float {
         if recordID == t"Items.Preset_Carnage_Default" {
             return 320.0 / 76.0;
@@ -650,7 +575,6 @@ public class GRRewards extends ScriptableSystem {
         return 2.5;
     }
 
-    // Banda a la que pertenece un record de arma (la tabla de WeaponForGang al reves).
     private func GangForRecord(recordID: TweakDBID) -> String {
         let gangs: array<String> = ["Maelstrom", "TygerClaws", "Valentinos", "SixthStreet", "Animals", "VoodooBoys", "Wraiths", "Scavengers", "Barghest"];
         let i: Int32 = 0;
@@ -663,7 +587,6 @@ public class GRRewards extends ScriptableSystem {
         return "";
     }
 
-    // Una linea por arma registrada: de que Jefe es, si V la tiene y sus stats.
     public func DebugReport() -> Void {
         let gi: GameInstance = this.GetGameInstance();
         let player: ref<PlayerPuppet> = GetPlayer(gi);
@@ -706,8 +629,6 @@ public class GRRewards extends ScriptableSystem {
         }
     }
 
-    // Quita de V la ultima arma registrada. Si el juego no la quita y V la sigue teniendo, queda registrada para reintentar.
-    // El Jefe sigue contando como "ya dio su arma".
     public func DebugRemoveLast() -> Void {
         let gi: GameInstance = this.GetGameInstance();
         this.SyncLists();
@@ -739,8 +660,6 @@ public class GRRewards extends ScriptableSystem {
             + " sacada del registro=" + this.BoolText(unregistered) + " (quedan " + IntToString(ArraySize(this.m_ids)) + ")");
     }
 
-    // Deja m_nemesisIds y m_levels del mismo largo que m_ids (las armas de la prueba vieja no tenian Jefe y las de
-    // antes del Aumento no tenian nivel: se rellenan con 0).
     private func SyncLists() -> Void {
         while ArraySize(this.m_nemesisIds) < ArraySize(this.m_ids) {
             ArrayPush(this.m_nemesisIds, 0);
@@ -787,7 +706,6 @@ public class GRRewards extends ScriptableSystem {
         return TDBID.None();
     }
 
-    // 0 = Electrico, 1 = Termico, 2 = Quimico. Sale de las fortalezas elementales del Jefe; si no tiene ninguna, de las tres.
     private func PickElement(traitsCsv: String, pick: Int32) -> Int32 {
         let options: array<Int32>;
         let keys: array<String> = StrSplit(traitsCsv, ",");
@@ -830,7 +748,6 @@ public class GRRewards extends ScriptableSystem {
         return "";
     }
 
-    // Nombre del juego para el arma base ("Carnage"). Nativo: no pasa por nuestros wraps.
     private func WeaponBaseName(id: ItemID) -> String {
         return this.RecordBaseName(ItemID.GetTDBID(id));
     }
@@ -849,7 +766,6 @@ public class GRRewards extends ScriptableSystem {
         if IsDefined(core) {
             format = core.GetText("GR-WeaponName");
         }
-        // Si la localizacion no esta lista devuelve la clave: se usa el formato en ingles.
         if !StrContains(format, "{weapon}") || !StrContains(format, "{boss}") {
             format = "{boss}'s {weapon}";
         }
@@ -877,7 +793,6 @@ public class GRRewards extends ScriptableSystem {
         return "ElectricDamage";
     }
 
-    // Para el log: un arma puede no tener elemento.
     private func ElementLabel(element: Int32) -> String {
         if element < 0 || element > 2 {
             return "ninguno";
@@ -905,13 +820,6 @@ public class GRRewards extends ScriptableSystem {
         return "ElectrocutedApplicationRate";
     }
 
-    // -------------------------------------------------------------------------
-    // Tooltip del inventario
-    // -------------------------------------------------------------------------
-    // Linea con el bono elemental de un arma de Jefe ("+23% Dano termico"). null si el arma no es nuestra
-    // (GetCustomName vacio) o no tiene elemento. El juego ya muestra la probabilidad del estado (los
-    // ApplicationRate estan en UIMaps.Wea_*.tooltipStats), pero el dano elemental no esta en esa lista.
-    // El numero es el mismo que muestra Arsenal (WeaponBonus).
     public func MakeTooltipStat(data: wref<gameItemData>) -> ref<GRElementStat> {
         if !IsDefined(data) || StrLen(this.GetCustomName(data.GetID())) == 0 {
             return null;
@@ -929,12 +837,9 @@ public class GRRewards extends ScriptableSystem {
         let stat: ref<GRElementStat> = new GRElementStat();
         stat.element = element;
         stat.rateType = this.ElementRateStat(element);
-        // No puede ser ElectricDamage/ThermalDamage/ChemicalDamage: el tooltip las dibuja como rango "min-max".
         stat.Type = this.ElementPercentStat(element);
         stat.Value = bonus;
-        // nombre, 1 decimal, con "%", con "+"; el resto apagado.
         stat.SetProperties(UIItemStatProperties.Make(label, 1, true, true, false, false, false, false, false, -1.0, false));
-        // Una vez por arma cada vez que el inventario arma su tooltip.
         GRLog("Recompensas: tooltip +" + FloatToStringPrec(bonus, 1) + "% " + this.ElementName(element) + " en " + this.DescribeId(data.GetID()));
         return stat;
     }
@@ -949,7 +854,6 @@ public class GRRewards extends ScriptableSystem {
         return gamedataStatType.ElectricDamagePercentBonus;
     }
 
-    // "Dano termico", con las mismas claves que Arsenal. Si la localizacion no esta lista devuelve la clave: va en ingles.
     private func ElementDamageLabel(element: Int32) -> String {
         let key: String = "GR-MenuDmg-" + IntToString(element);
         let text: String = "";
@@ -976,12 +880,10 @@ public class GRRewards extends ScriptableSystem {
         return "false";
     }
 
-    // Varias armas pueden compartir TDBID; seed y hash distinguen cada instancia.
     private func DescribeId(id: ItemID) -> String {
         return "id=" + TDBID.ToStringDEBUG(ItemID.GetTDBID(id)) + " seed=" + ToString(ItemID.GetRngSeed(id)) + " hash=" + ToString(ItemID.GetCombinedHash(id));
     }
 
-    // Lo que dice el item; si da 0 (puede no estar inicializado), lo que dice el StatsSystem.
     private func ReadStat(data: wref<gameItemData>, stats: ref<StatsSystem>, stat: gamedataStatType) -> Float {
         let fromItem: Float = data.GetStatValueByType(stat);
         if fromItem > 0.0 {
@@ -990,7 +892,6 @@ public class GRRewards extends ScriptableSystem {
         return stats.GetStatValue(data.GetStatsObjectID(), stat);
     }
 
-    // Cada stat se loguea dos veces (item/sistema): tienen que coincidir, tambien despues de guardar y cargar.
     private func DescribeStat(label: String, data: wref<gameItemData>, stats: ref<StatsSystem>, stat: gamedataStatType) -> String {
         return label + "=" + FloatToStringPrec(data.GetStatValueByType(stat), 2) + "/" + FloatToStringPrec(stats.GetStatValue(data.GetStatsObjectID(), stat), 2);
     }
@@ -1010,7 +911,6 @@ public class GRRewards extends ScriptableSystem {
     }
 }
 
-// Nombre propio de un arma de Jefe, o "" si no lo es o el sistema todavia no existe (menu principal).
 public func GRRewardCustomName(id: ItemID) -> String {
     if !ItemID.IsValid(id) {
         return "";
@@ -1026,7 +926,6 @@ public func GRRewardCustomName(id: ItemID) -> String {
     return rewards.GetCustomName(id);
 }
 
-// Inventario y tooltip nuevos. Se llama siempre al original primero para no cambiar su cache interna.
 @wrapMethod(UIInventoryItem)
 public final func GetName() -> String {
     let original: String = wrappedMethod();
@@ -1037,7 +936,6 @@ public final func GetName() -> String {
     return original;
 }
 
-// Botin, aviso de "objeto obtenido" y selector de cantidad pasan por aca.
 @wrapMethod(UIItemsHelper)
 public final static func GetItemName(itemRecord: ref<Item_Record>, itemData: wref<gameItemData>) -> String {
     let original: String = wrappedMethod(itemRecord, itemData);
@@ -1051,8 +949,6 @@ public final static func GetItemName(itemRecord: ref<Item_Record>, itemData: wre
     return original;
 }
 
-// Camino viejo de la UI (InventoryItemData): lo usan las ranuras de equipo del inventario y, con el mod
-// Inventory Adjustments Hub, la etiqueta con el nombre del arma en la casilla.
 @wrapMethod(InventoryItemData)
 public final static func GetName(const self: script_ref<InventoryItemData>) -> String {
     let original: String = wrappedMethod(self);
@@ -1063,18 +959,11 @@ public final static func GetName(const self: script_ref<InventoryItemData>) -> S
     return original;
 }
 
-// -------------------------------------------------------------------------
-// Tooltip del inventario: bono elemental de las armas de Jefe
-// -------------------------------------------------------------------------
-// Linea extra del tooltip ("+23% Dano termico"). La clase propia sirve para reconocerla al pintarla.
 public class GRElementStat extends UIInventoryItemStat {
-    // 0 = Electrico, 1 = Termico, 2 = Quimico.
     public let element: Int32;
-    // ApplicationRate de ese elemento: la linea va justo antes de la suya.
     public let rateType: gamedataStatType;
 }
 
-// La linea del tooltip para este item, o null si no es un arma de Jefe o el sistema todavia no existe.
 public func GRRewardElementStat(data: wref<gameItemData>) -> ref<GRElementStat> {
     if !IsDefined(data) {
         return null;
@@ -1090,7 +979,6 @@ public func GRRewardElementStat(data: wref<gameItemData>) -> ref<GRElementStat> 
     return rewards.MakeTooltipStat(data);
 }
 
-// Los mismos colores que el menu (GRNemesisMenuController.ElementColor). 0 = Electrico, 1 = Termico, 2 = Quimico.
 public func GRElementColor(element: Int32) -> HDRColor {
     if element == 1 {
         return new HDRColor(1.0, 0.6, 0.239, 1.0);
@@ -1104,9 +992,6 @@ public func GRElementColor(element: Int32) -> HDRColor {
 @addField(UIInventoryItemStatsManager)
 private let m_grElementChecked: Bool;
 
-// El tooltip siempre pregunta primero cuantas stats tiene: ahi se suma la nuestra, una sola vez por arma.
-// No se engancha en FetchTooltipStats porque Inventory Adjustments Hub lo envuelve y, segun su ajuste,
-// no llama al original (nuestro wrap podria no correr nunca).
 @wrapMethod(UIInventoryItemStatsManager)
 public final func SizeTooltipStats() -> Int32 {
     let size: Int32 = wrappedMethod();
@@ -1118,7 +1003,6 @@ public final func SizeTooltipStats() -> Int32 {
     if !IsDefined(stat) {
         return size;
     }
-    // Justo antes de la probabilidad de su estado; si esa linea no esta, al final.
     let at: Int32 = -1;
     let i: Int32 = 0;
     while i < size && i < ArraySize(this.TooltipStats) && at < 0 {
@@ -1135,8 +1019,6 @@ public final func SizeTooltipStats() -> Int32 {
     return ArraySize(this.TooltipStats);
 }
 
-// Pinta nuestra linea con el color del elemento. Las filas del tooltip se crean de nuevo en cada
-// actualizacion, asi que el color no queda pegado en otra stat.
 @wrapMethod(ItemTooltipStatController)
 public final func SetData(data: wref<UIInventoryItemStat>) -> Void {
     wrappedMethod(data);
