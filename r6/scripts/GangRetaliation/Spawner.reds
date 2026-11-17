@@ -7,6 +7,8 @@ public class GRSpawner extends ScriptableSystem {
 
     private let m_nemesisIDs: array<Int32>;
 
+    private let m_headRemovedIds: array<EntityID>;
+
     private let m_lines: array<String>;
 
     private let m_speakers: array<String>;
@@ -450,6 +452,7 @@ public class GRSpawner extends ScriptableSystem {
     }
 
     private func RecordDeath(nemesisId: Int32, npc: ref<ScriptedPuppet>) {
+        let headRemoved: Bool = IsDefined(npc) && ArrayContains(this.m_headRemovedIds, npc.GetEntityID());
         let kind: String = this.DeathKind(nemesisId, npc);
         ArrayPush(this.m_deaths, nemesisId);
         let cause: String = this.TakeLastHit(nemesisId);
@@ -457,13 +460,26 @@ public class GRSpawner extends ScriptableSystem {
             GRLog("Nemesis #" + IntToString(nemesisId) + ": muerte indirecta (" + cause + "), atribuida a V");
             cause = "v";
         }
-        if Equals(kind, "confirmed") && NotEquals(cause, "v") {
+        if Equals(kind, "confirmed") && NotEquals(cause, "v") && !headRemoved {
             kind = "normal";
+        }
+        if headRemoved {
+            kind = "confirmed";
         }
         ArrayPush(this.m_deathKinds, kind);
         ArrayPush(this.m_deathCauses, cause);
         ArrayRemove(this.m_finisherIds, nemesisId);
-        GRLog("Nemesis #" + IntToString(nemesisId) + " muerto (" + kind + ", " + cause + ")");
+        if IsDefined(npc) {
+            ArrayRemove(this.m_headRemovedIds, npc.GetEntityID());
+        }
+        GRLog("Nemesis #" + IntToString(nemesisId) + " muerto (" + kind + ", " + cause + ", decapitado=" + (headRemoved ? "si" : "no") + ")");
+    }
+
+    public func MarkHeadRemoved(id: EntityID) {
+        if !ArrayContains(this.m_headRemovedIds, id) {
+            ArrayPush(this.m_headRemovedIds, id);
+            GRLog("Decapitacion registrada (entidad en espera de muerte confirmada)");
+        }
     }
 
     private func KilledByPlayer(npc: ref<NPCPuppet>) -> Bool {
@@ -501,6 +517,7 @@ public class GRSpawner extends ScriptableSystem {
         }
         if IsDefined(npc) && IsDefined(npc.GetDismembermentComponent()) {
             let limbs = npc.GetDismembermentComponent().GetDismemberedLimbCount();
+            GRLog("Nemesis #" + IntToString(nemesisId) + ": miembros desmembrados carne=" + IntToString(Cast<Int32>(limbs.fleshDismemberments)) + " cyber=" + IntToString(Cast<Int32>(limbs.cyberDismemberments)));
             if limbs.fleshDismemberments + limbs.cyberDismemberments > 0u {
                 return "confirmed";
             }

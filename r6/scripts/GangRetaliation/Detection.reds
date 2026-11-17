@@ -17,6 +17,8 @@ public class GRCandidate {
     public let unseen: Float;
     public let discovered: Bool;
     public let nativeFlee: Bool;
+    public let limbsMissing: Bool;
+    public let wasAware: Bool;
 }
 
 public class GRNemesisEvent {
@@ -30,6 +32,7 @@ public class GRNemesisEvent {
     public let posX: Float;
     public let posY: Float;
     public let posZ: Float;
+    public let limbsMissing: Bool;
 }
 
 public class GRDetection extends ScriptableSystem {
@@ -137,6 +140,26 @@ public class GRDetection extends ScriptableSystem {
         return !IsDefined(npc) || npc.IsDead() || ScriptedPuppet.IsDefeated(npc) || ScriptedPuppet.IsUnconscious(npc);
     }
 
+    // Being in combat, or even having V on this NPC's hostile-threat list, isn't enough:
+    // a barrel explosion or a remote quickhack can alert and injure them without them ever
+    // actually spotting V (a tracked threat can be a last-known/suspected position, not a
+    // confirmed sighting). TrackedLocation.visible is the strict "has actually seen V" flag.
+    public static func IsAwareOfPlayer(npc: ref<ScriptedPuppet>, player: ref<PlayerPuppet>) -> Bool {
+        if !IsDefined(npc) || !IsDefined(player) {
+            return false;
+        }
+        let tracked: TrackedLocation;
+        return TargetTrackingExtension.GetTrackedLocation(npc, player, tracked) && tracked.visible;
+    }
+
+    public static func HasMissingLimb(npc: ref<ScriptedPuppet>) -> Bool {
+        if !IsDefined(npc) || !IsDefined(npc.GetDismembermentComponent()) {
+            return false;
+        }
+        let limbs = npc.GetDismembermentComponent().GetDismemberedLimbCount();
+        return limbs.fleshDismemberments + limbs.cyberDismemberments > 0u;
+    }
+
     private func GetHealthPercent(npc: ref<ScriptedPuppet>) -> Float {
         return GameInstance.GetStatPoolsSystem(this.GetGameInstance()).GetStatPoolValue(Cast<StatsObjectID>(npc.GetEntityID()), gamedataStatPoolType.Health, true);
     }
@@ -198,6 +221,8 @@ public class GRDetection extends ScriptableSystem {
         candidate.gender = npc.GetResolvedGenderName();
         candidate.health = this.GetHealthPercent(npc);
         candidate.position = npc.GetWorldPosition();
+        candidate.limbsMissing = GRDetection.HasMissingLimb(npc);
+        candidate.wasAware = GRDetection.IsAwareOfPlayer(npc, GetPlayer(this.GetGameInstance()));
         return candidate;
     }
 
@@ -207,6 +232,8 @@ public class GRDetection extends ScriptableSystem {
             let candidate: ref<GRCandidate> = this.m_candidates[index];
             candidate.health = this.GetHealthPercent(npc);
             candidate.position = npc.GetWorldPosition();
+            candidate.limbsMissing = GRDetection.HasMissingLimb(npc);
+            candidate.wasAware = candidate.wasAware || GRDetection.IsAwareOfPlayer(npc, GetPlayer(this.GetGameInstance()));
             return candidate;
         }
         let created: ref<GRCandidate> = this.MakeCandidate(npc);
@@ -597,6 +624,7 @@ public class GRDetection extends ScriptableSystem {
                 } else {
                     candidate.health = this.GetHealthPercent(npc);
                     candidate.position = npc.GetWorldPosition();
+                    candidate.limbsMissing = GRDetection.HasMissingLimb(npc);
                     let distance: Float = IsDefined(player) ? Vector4.Distance(npc.GetWorldPosition(), player.GetWorldPosition()) : 0.0;
                     let elapsed: Float = this.Now() - this.m_fleeStart[i];
                     if this.PlayerSees(npc) {
@@ -660,6 +688,7 @@ public class GRDetection extends ScriptableSystem {
         }
         candidate.health = this.GetHealthPercent(npc);
         candidate.position = npc.GetWorldPosition();
+        candidate.limbsMissing = GRDetection.HasMissingLimb(npc);
         let gi: GameInstance = this.GetGameInstance();
         let spawner: ref<GRSpawner> = GRSpawner.Get(gi);
         if IsDefined(spawner) && spawner.IsOwnSpawn(id) {
@@ -813,9 +842,12 @@ public class GRDetection extends ScriptableSystem {
             if IsDefined(candidate) {
                 npc = GameInstance.FindEntityByID(this.GetGameInstance(), candidate.entityID) as ScriptedPuppet;
             }
-            if IsDefined(npc) && !GRDetection.IsNeutralized(npc) && !GRDetection.IsPlayerAlly(npc) {
+            if IsDefined(npc) && !npc.IsDead() && !GRDetection.IsPlayerAlly(npc) {
                 candidate.health = this.GetHealthPercent(npc);
                 candidate.position = npc.GetWorldPosition();
+                candidate.limbsMissing = GRDetection.HasMissingLimb(npc);
+                candidate.wasAware = candidate.wasAware || GRDetection.IsAwareOfPlayer(npc, GetPlayer(this.GetGameInstance()));
+                let unconscious: Bool = ScriptedPuppet.IsDefeated(npc) || ScriptedPuppet.IsUnconscious(npc);
 
                 if debugLog {
                     let msg: String = "Fin de combate: ";
@@ -826,11 +858,25 @@ public class GRDetection extends ScriptableSystem {
                     if candidate.fleeing {
                         msg += " (huyendo)";
                     }
+                    if unconscious {
+                        msg += " (inconsciente)";
+                        if !candidate.wasAware {
+                            msg += " (sigiloso, no vio a V)";
+                        }
+                    }
                     GRLog(msg);
                 }
 
                 let pacified: Bool = IsDefined(spawner) && spawner.IsLeftover(candidate.entityID) && !candidate.fled;
-                if !pacified && !candidate.fleeing && candidate.health > 0.0 && (candidate.health <= threshold || candidate.fled) {
+                if unconscious {
+                    if !pacified && candidate.wasAware {
+                        this.Promote(candidate, "knockedout");
+                    } else {
+                        if !pacified {
+                            this.Debug("Derribo sigiloso: no se registra (nunca vio a V, nemesisId=" + IntToString(candidate.nemesisId) + "): " + candidate.gang);
+                        }
+                    }
+                } else if !pacified && !candidate.fleeing && candidate.health > 0.0 && (candidate.health <= threshold || candidate.fled) {
                     this.Promote(candidate, candidate.fled ? "fled" : "escaped");
                 }
             }
@@ -885,6 +931,7 @@ public class GRDetection extends ScriptableSystem {
         evt.posX = candidate.position.X;
         evt.posY = candidate.position.Y;
         evt.posZ = candidate.position.Z;
+        evt.limbsMissing = candidate.limbsMissing;
         ArrayPush(this.m_pending, evt);
         GRLog("Nuevo Nemesis (" + origin + "): " + evt.gang + " " + evt.recordID);
     }
