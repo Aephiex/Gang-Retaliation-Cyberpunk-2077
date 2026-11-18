@@ -214,6 +214,24 @@ local function createNemesis(evt)
     end
 end
 
+local function queueKnockoutPromotion(evt)
+    local campaign = Store.ensureCampaign(GR.campaignId)
+    campaign.pendingKnockouts = campaign.pendingKnockouts or {}
+    table.insert(campaign.pendingKnockouts, {
+        dueDay = gameDay() + 1 + math.random(),
+        nemesisId = evt.nemesisId,
+        gang = evt.gang,
+        origin = evt.origin,
+        recordID = evt.recordID,
+        appearance = evt.appearance,
+        gender = evt.gender,
+        health = evt.health,
+        posX = evt.posX, posY = evt.posY, posZ = evt.posZ,
+        limbsMissing = evt.limbsMissing,
+    })
+    Store.dirty = true
+end
+
 local function processPending()
     local det = getDetection()
     if not det then return end
@@ -223,11 +241,33 @@ local function processPending()
     for i = 0, count - 1 do
         local evt = det:GetPending(i)
         if evt then
-            local ok, err = pcall(createNemesis, evt)
-            if not ok then print("[GangRetaliation] Error creando Nemesis: " .. tostring(err)) end
+            if evt.origin == "knockedout" and (not evt.nemesisId or evt.nemesisId == 0) then
+                local ok, err = pcall(queueKnockoutPromotion, evt)
+                if not ok then print("[GangRetaliation] Error aplazando ascenso por derribo: " .. tostring(err)) end
+            else
+                local ok, err = pcall(createNemesis, evt)
+                if not ok then print("[GangRetaliation] Error creando Nemesis: " .. tostring(err)) end
+            end
         end
     end
     det:ClearPending()
+end
+
+local function processKnockoutPromotions()
+    local campaign = Store.campaign(GR.campaignId)
+    if not campaign or not campaign.pendingKnockouts or #campaign.pendingKnockouts == 0 then return end
+    local today = gameDay()
+    local remaining = {}
+    for _, p in ipairs(campaign.pendingKnockouts) do
+        if today >= p.dueDay then
+            local ok, err = pcall(createNemesis, p)
+            if not ok then print("[GangRetaliation] Error creando Nemesis (derribo retrasado): " .. tostring(err)) end
+        else
+            table.insert(remaining, p)
+        end
+    end
+    campaign.pendingKnockouts = remaining
+    Store.dirty = true
 end
 
 local function giveBossWeapon(n, force)
@@ -1124,6 +1164,7 @@ local function update(delta)
 
     if tick then
         prof("processPending", processPending)
+        prof("processKnockoutPromotions", processKnockoutPromotions)
         prof("processDeaths", processDeaths)
         prof("checkEncounter", checkEncounter)
         prof("checkRaid", checkRaid)

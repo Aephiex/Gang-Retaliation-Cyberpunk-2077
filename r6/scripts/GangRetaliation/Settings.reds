@@ -133,6 +133,26 @@ public class GRSettings extends ScriptableSystem {
     @runtimeProperty("ModSettings.mod", "GR-ModName")
     @runtimeProperty("ModSettings.category", "GR-CatTriggers")
     @runtimeProperty("ModSettings.category.order", "20")
+    @runtimeProperty("ModSettings.displayName", "GR-SetKnockoutChance")
+    @runtimeProperty("ModSettings.description", "GR-SetKnockoutChanceDesc")
+    @runtimeProperty("ModSettings.step", "5")
+    @runtimeProperty("ModSettings.min", "0")
+    @runtimeProperty("ModSettings.max", "100")
+    public let knockoutChancePercent: Int32 = 40;
+
+    @runtimeProperty("ModSettings.mod", "GR-ModName")
+    @runtimeProperty("ModSettings.category", "GR-CatTriggers")
+    @runtimeProperty("ModSettings.category.order", "20")
+    @runtimeProperty("ModSettings.displayName", "GR-SetReturnChance")
+    @runtimeProperty("ModSettings.description", "GR-SetReturnChanceDesc")
+    @runtimeProperty("ModSettings.step", "5")
+    @runtimeProperty("ModSettings.min", "0")
+    @runtimeProperty("ModSettings.max", "100")
+    public let returnChancePercent: Int32 = 40;
+
+    @runtimeProperty("ModSettings.mod", "GR-ModName")
+    @runtimeProperty("ModSettings.category", "GR-CatTriggers")
+    @runtimeProperty("ModSettings.category.order", "20")
     @runtimeProperty("ModSettings.displayName", "GR-SetLastManFlees")
     @runtimeProperty("ModSettings.description", "GR-SetLastManFleesDesc")
     public let lastManFlees: Bool = true;
@@ -250,16 +270,6 @@ public class GRSettings extends ScriptableSystem {
     @runtimeProperty("ModSettings.min", "0")
     @runtimeProperty("ModSettings.max", "100")
     public let raidChancePercent: Int32 = 10;
-
-    @runtimeProperty("ModSettings.mod", "GR-ModName")
-    @runtimeProperty("ModSettings.category", "GR-CatHierarchy")
-    @runtimeProperty("ModSettings.category.order", "50")
-    @runtimeProperty("ModSettings.displayName", "GR-SetReturnChance")
-    @runtimeProperty("ModSettings.description", "GR-SetReturnChanceDesc")
-    @runtimeProperty("ModSettings.step", "5")
-    @runtimeProperty("ModSettings.min", "0")
-    @runtimeProperty("ModSettings.max", "100")
-    public let returnChancePercent: Int32 = 40;
 
     @runtimeProperty("ModSettings.mod", "GR-ModName")
     @runtimeProperty("ModSettings.category", "GR-CatWar")

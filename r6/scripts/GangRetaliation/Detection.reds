@@ -870,7 +870,11 @@ public class GRDetection extends ScriptableSystem {
                 let pacified: Bool = IsDefined(spawner) && spawner.IsLeftover(candidate.entityID) && !candidate.fled;
                 if unconscious {
                     if !pacified && candidate.wasAware {
-                        this.Promote(candidate, "knockedout");
+                        if RandRange(0, 100) < settings.knockoutChancePercent {
+                            this.Promote(candidate, "knockedout");
+                        } else {
+                            this.Debug("Derribo: tirada fallida (" + IntToString(settings.knockoutChancePercent) + "%), no se registra: " + candidate.gang);
+                        }
                     } else {
                         if !pacified {
                             this.Debug("Derribo sigiloso: no se registra (nunca vio a V, nemesisId=" + IntToString(candidate.nemesisId) + "): " + candidate.gang);

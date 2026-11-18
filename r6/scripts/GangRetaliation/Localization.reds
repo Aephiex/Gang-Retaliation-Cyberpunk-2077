@@ -45,6 +45,8 @@ public class GREnglish extends ModLocalizationPackage {
         this.Text("GR-SetNotifyCenterDesc", "ON: Nemesis updates show as a big warning in the middle of the screen. OFF: they go quietly to the side log (like looted items). Either way they wait until cutscenes, braindances and menus are over.");
         this.Text("GR-SetEscapeHealth", "Wounded escape threshold (%)");
         this.Text("GR-SetEscapeHealthDesc", "A gang member who leaves combat at or below this health becomes a Nemesis.");
+        this.Text("GR-SetKnockoutChance", "Knockout promotion chance (%)");
+        this.Text("GR-SetKnockoutChanceDesc", "Chance that a gang member you leave unconscious (while aware of you) becomes a Nemesis. Fled and wounded-escape still always count.");
         this.Text("GR-SetDebugLog", "Debug log");
         this.Text("GR-SetDebugLogDesc", "Writes detailed messages to the redscript log and the CET console.");
         this.Text("GR-CatAbout", "About");
@@ -454,6 +456,8 @@ public class GRSpanish extends ModLocalizationPackage {
         this.Text("GR-SetNotifyCenterDesc", "SÍ: las novedades de los Némesis salen como aviso grande en el centro. NO: van discretas al registro lateral (como los objetos saqueados). En los dos casos esperan a que terminen las escenas, las danzas cerebrales y los menús.");
         this.Text("GR-SetEscapeHealth", "Vida para huida herida (%)");
         this.Text("GR-SetEscapeHealthDesc", "Un pandillero que sale del combate con esta vida o menos se convierte en Némesis.");
+        this.Text("GR-SetKnockoutChance", "Probabilidad de ascenso por derribo (%)");
+        this.Text("GR-SetKnockoutChanceDesc", "Probabilidad de que un pandillero que dejas inconsciente (mientras te tenía detectado) se convierta en Némesis. Las huidas y escapes heridos siempre cuentan.");
         this.Text("GR-SetDebugLog", "Log de depuración");
         this.Text("GR-SetDebugLogDesc", "Escribe mensajes detallados en el log de redscript y en la consola de CET.");
         this.Text("GR-CatAbout", "Acerca de");

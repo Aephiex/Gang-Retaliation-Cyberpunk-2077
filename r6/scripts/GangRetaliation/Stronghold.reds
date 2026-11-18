@@ -1477,9 +1477,7 @@ public func GRApplyMappinIcon(mappin: wref<IMappin>, icon: inkImageRef, view: In
 @wrapMethod(BaseWorldMapMappinController)
 protected func UpdateIcon() -> Void {
     wrappedMethod();
-    if !this.IsCollection() {
-        GRApplyMappinIcon(this.GetMappin(), this.iconWidget, GRStrongholdMappinData.ViewMap());
-    }
+    GRApplyMappinIcon(this.GetMappin(), this.iconWidget, GRStrongholdMappinData.ViewMap());
 }
 
 @wrapMethod(MinimapPOIMappinController)
@@ -1557,7 +1555,7 @@ public func SetData(const data: script_ref<WorldMapTooltipData>, menu: ref<World
     if IsDefined(this.m_grBanner) {
         this.m_grBanner.SetVisible(false);
     }
-    if !IsDefined(menu) || Deref(data).isCollection {
+    if !IsDefined(menu) {
         return;
     }
     let mark: wref<GRStrongholdMappinData> = GRStrongholdMappinData.Of(Deref(data).mappin);
@@ -1598,7 +1596,7 @@ public func SetData(const data: script_ref<WorldMapTooltipData>, menu: ref<World
 @wrapMethod(WorldMapPoliceTooltipController)
 public func SetData(const data: script_ref<WorldMapTooltipData>, menu: ref<WorldMapMenuGameController>) -> Void {
     wrappedMethod(data, menu);
-    if !IsDefined(menu) || Deref(data).isCollection {
+    if !IsDefined(menu) {
         return;
     }
     let mark: wref<GRStrongholdMappinData> = GRStrongholdMappinData.Of(Deref(data).mappin);
