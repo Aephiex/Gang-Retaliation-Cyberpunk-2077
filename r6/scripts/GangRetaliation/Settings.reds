@@ -133,6 +133,26 @@ public class GRSettings extends ScriptableSystem {
     @runtimeProperty("ModSettings.mod", "GR-ModName")
     @runtimeProperty("ModSettings.category", "GR-CatTriggers")
     @runtimeProperty("ModSettings.category.order", "20")
+    @runtimeProperty("ModSettings.displayName", "GR-SetKnockoutChance")
+    @runtimeProperty("ModSettings.description", "GR-SetKnockoutChanceDesc")
+    @runtimeProperty("ModSettings.step", "5")
+    @runtimeProperty("ModSettings.min", "0")
+    @runtimeProperty("ModSettings.max", "100")
+    public let knockoutChancePercent: Int32 = 40;
+
+    @runtimeProperty("ModSettings.mod", "GR-ModName")
+    @runtimeProperty("ModSettings.category", "GR-CatTriggers")
+    @runtimeProperty("ModSettings.category.order", "20")
+    @runtimeProperty("ModSettings.displayName", "GR-SetReturnChance")
+    @runtimeProperty("ModSettings.description", "GR-SetReturnChanceDesc")
+    @runtimeProperty("ModSettings.step", "5")
+    @runtimeProperty("ModSettings.min", "0")
+    @runtimeProperty("ModSettings.max", "100")
+    public let returnChancePercent: Int32 = 40;
+
+    @runtimeProperty("ModSettings.mod", "GR-ModName")
+    @runtimeProperty("ModSettings.category", "GR-CatTriggers")
+    @runtimeProperty("ModSettings.category.order", "20")
     @runtimeProperty("ModSettings.displayName", "GR-SetLastManFlees")
     @runtimeProperty("ModSettings.description", "GR-SetLastManFleesDesc")
     public let lastManFlees: Bool = true;
@@ -252,16 +272,6 @@ public class GRSettings extends ScriptableSystem {
     public let raidChancePercent: Int32 = 10;
 
     @runtimeProperty("ModSettings.mod", "GR-ModName")
-    @runtimeProperty("ModSettings.category", "GR-CatHierarchy")
-    @runtimeProperty("ModSettings.category.order", "50")
-    @runtimeProperty("ModSettings.displayName", "GR-SetReturnChance")
-    @runtimeProperty("ModSettings.description", "GR-SetReturnChanceDesc")
-    @runtimeProperty("ModSettings.step", "5")
-    @runtimeProperty("ModSettings.min", "0")
-    @runtimeProperty("ModSettings.max", "100")
-    public let returnChancePercent: Int32 = 40;
-
-    @runtimeProperty("ModSettings.mod", "GR-ModName")
     @runtimeProperty("ModSettings.category", "GR-CatWar")
     @runtimeProperty("ModSettings.category.order", "60")
     @runtimeProperty("ModSettings.displayName", "GR-SetWarChance")
@@ -361,4 +371,16 @@ public class GRSettings extends ScriptableSystem {
     @runtimeProperty("ModSettings.displayName", "GR-SetDebugLog")
     @runtimeProperty("ModSettings.description", "GR-SetDebugLogDesc")
     public let debugLog: Bool = false;
+
+    // No plain label/read-only row exists in the Mod Settings framework (checked its
+    // source: every ConfigVar type is an interactive Bool/Int/Float/Name/list widget).
+    // This field is a no-op by design, purely to show the version at the bottom of the
+    // screen; keep its displayName in sync with VERSION in build/build_release.py,
+    // CHANGELOG.md and README.md whenever any of those change.
+    @runtimeProperty("ModSettings.mod", "GR-ModName")
+    @runtimeProperty("ModSettings.category", "GR-CatAbout")
+    @runtimeProperty("ModSettings.category.order", "95")
+    @runtimeProperty("ModSettings.displayName", "GR-SetVersion")
+    @runtimeProperty("ModSettings.description", "GR-SetVersionDesc")
+    public let aboutVersion: Bool = true;
 }

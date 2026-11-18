@@ -6,6 +6,7 @@ local Hierarchy = require("modules/hierarchy")
 local War = require("modules/war")
 local Escorts = require("modules/escorts")
 local Vehicles = require("modules/vehicles")
+local CyberLooks = require("modules/cyberlooks")
 
 local GR = {
     dev = false,
@@ -52,6 +53,10 @@ end
 
 local function getDetection()
     return getSystem("GangRetaliation.GRDetection")
+end
+
+local function getSpawner()
+    return getSystem("GangRetaliation.GRSpawner")
 end
 
 local function debugLog(msg)
@@ -133,7 +138,12 @@ local function updateNemesis(evt)
     Hierarchy.addRenown(n, 2)
     Traits.ensure(n)
     Traits.grow(n)
-    notify(string.format(text("GR-MsgAgainEscaped", "%s escaped you again. They are getting stronger."), labelOf(n)))
+    if evt.limbsMissing then
+        CyberLooks.apply(n)
+        notify(string.format(text("GR-MsgAgainEscapedDismembered", "%s escaped you again. They are injured but getting stronger."), labelOf(n)))
+    else
+        notify(string.format(text("GR-MsgAgainEscaped", "%s escaped you again. They are getting stronger."), labelOf(n)))
+    end
     Store.dirty = true
     Store.save()
 end
@@ -177,14 +187,49 @@ local function createNemesis(evt)
         traits = {},
     })
     Traits.ensure(nemesis)
+    if evt.limbsMissing then
+        CyberLooks.apply(nemesis)
+    end
     Store.save()
 
     local label = Names.display(nemesis, lang()) .. " (" .. Names.gangLabel(gang) .. ")"
     if evt.origin == "fled" then
-        notify(string.format(text("GR-MsgFled", "%s ran away. They will come back for you."), label))
+        if evt.limbsMissing then
+            notify(string.format(text("GR-MsgFledDismembered", "%s ran away injured. They will come back for you."), label))
+        else
+            notify(string.format(text("GR-MsgFled", "%s ran away. They will come back for you."), label))
+        end
+    elseif evt.origin == "knockedout" then
+        if evt.limbsMissing then
+            notify(string.format(text("GR-MsgKnockedOutDismembered", "%s awoke with new chrome. They won't forget this."), label))
+        else
+            notify(string.format(text("GR-MsgKnockedOut", "%s upgraded their chrome, vowing revenge."), label))
+        end
     else
-        notify(string.format(text("GR-MsgEscaped", "%s got away wounded. They will remember you."), label))
+        if evt.limbsMissing then
+            notify(string.format(text("GR-MsgEscapedDismembered", "%s got away missing a limb. They will remember you."), label))
+        else
+            notify(string.format(text("GR-MsgEscaped", "%s got away wounded. They will remember you."), label))
+        end
     end
+end
+
+local function queueKnockoutPromotion(evt)
+    local campaign = Store.ensureCampaign(GR.campaignId)
+    campaign.pendingKnockouts = campaign.pendingKnockouts or {}
+    table.insert(campaign.pendingKnockouts, {
+        dueDay = gameDay() + 1 + math.random(),
+        nemesisId = evt.nemesisId,
+        gang = evt.gang,
+        origin = evt.origin,
+        recordID = evt.recordID,
+        appearance = evt.appearance,
+        gender = evt.gender,
+        health = evt.health,
+        posX = evt.posX, posY = evt.posY, posZ = evt.posZ,
+        limbsMissing = evt.limbsMissing,
+    })
+    Store.dirty = true
 end
 
 local function processPending()
@@ -196,11 +241,33 @@ local function processPending()
     for i = 0, count - 1 do
         local evt = det:GetPending(i)
         if evt then
-            local ok, err = pcall(createNemesis, evt)
-            if not ok then print("[GangRetaliation] Error creando Nemesis: " .. tostring(err)) end
+            if evt.origin == "knockedout" and (not evt.nemesisId or evt.nemesisId == 0) then
+                local ok, err = pcall(queueKnockoutPromotion, evt)
+                if not ok then print("[GangRetaliation] Error aplazando ascenso por derribo: " .. tostring(err)) end
+            else
+                local ok, err = pcall(createNemesis, evt)
+                if not ok then print("[GangRetaliation] Error creando Nemesis: " .. tostring(err)) end
+            end
         end
     end
     det:ClearPending()
+end
+
+local function processKnockoutPromotions()
+    local campaign = Store.campaign(GR.campaignId)
+    if not campaign or not campaign.pendingKnockouts or #campaign.pendingKnockouts == 0 then return end
+    local today = gameDay()
+    local remaining = {}
+    for _, p in ipairs(campaign.pendingKnockouts) do
+        if today >= p.dueDay then
+            local ok, err = pcall(createNemesis, p)
+            if not ok then print("[GangRetaliation] Error creando Nemesis (derribo retrasado): " .. tostring(err)) end
+        else
+            table.insert(remaining, p)
+        end
+    end
+    campaign.pendingKnockouts = remaining
+    Store.dirty = true
 end
 
 local function giveBossWeapon(n, force)
@@ -237,6 +304,7 @@ local function processDeaths()
             n.diedAt = os.time()
             n.deathDay = gameDay()
             n.diedByGang = nil
+            n.koDeath = (kind == "knockout")
             if string.sub(cause, 1, 5) == "gang:" then
                 n.diedBy, n.diedByGang = "gang", string.sub(cause, 6)
             else
@@ -526,7 +594,11 @@ local function hierarchyEvent(kind, a, b)
     if kind == "promoted" then
         notify(string.format(text("GR-MsgPromoted", "%s rose to %s of the %s."), nameA, rankA, gang))
     elseif kind == "returned" then
-        notify(string.format(text("GR-MsgReturned", "%s is back from the dead, rebuilt with chrome. They are coming for you."), nameA .. " (" .. gang .. ")"))
+        if a.origin == "returnedknockout" then
+            notify(string.format(text("GR-MsgReturnedKnockedOut", "%s was recovered and has been upgraded with chrome. Watch your back."), nameA .. " (" .. gang .. ")"))
+        else
+            notify(string.format(text("GR-MsgReturned", "%s is back from the dead, rebuilt with chrome. They are coming for you."), nameA .. " (" .. gang .. ")"))
+        end
         local phone = getSystem("GangRetaliation.GRPhone")
         if phone then
             phone:SendReturn(nameA, text("GR-SmsReturn-" .. math.random(3), "..."))
@@ -1013,9 +1085,35 @@ local function refreshCampaign()
     end
 end
 
+local function onDismemberment(self, bodyPart, woundType, strength, isCritical)
+    local ok, err = pcall(function()
+        local label = tostring(bodyPart)
+        debugLog(string.format("Desmembramiento: bodyPart=%s woundType=%s strength=%s isCritical=%s",
+            label, tostring(woundType), tostring(strength), tostring(isCritical)))
+        if label:lower():find("head") then
+            local entity = self:GetEntity()
+            local spawner = getSpawner()
+            if entity and spawner then
+                spawner:MarkHeadRemoved(entity:GetEntityID())
+                debugLog("Decapitacion detectada, marcada para muerte confirmada")
+            end
+        end
+    end)
+    if not ok then
+        print("[GangRetaliation] Error en gancho DoDismemberment: " .. tostring(err))
+    end
+end
+
 registerForEvent("onInit", function()
     math.randomseed(os.time())
     Store.load()
+
+    local okObserve, errObserve = pcall(function()
+        Observe("gameDismembermentComponent", "DoDismemberment", onDismemberment)
+    end)
+    if not okObserve then
+        print("[GangRetaliation] No se pudo enganchar DoDismemberment, la deteccion de decapitacion queda inactiva: " .. tostring(errObserve))
+    end
 
     print("[GangRetaliation] CET cargado")
 end)
@@ -1066,6 +1164,7 @@ local function update(delta)
 
     if tick then
         prof("processPending", processPending)
+        prof("processKnockoutPromotions", processKnockoutPromotions)
         prof("processDeaths", processDeaths)
         prof("checkEncounter", checkEncounter)
         prof("checkRaid", checkRaid)

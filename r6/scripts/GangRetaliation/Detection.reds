@@ -17,6 +17,8 @@ public class GRCandidate {
     public let unseen: Float;
     public let discovered: Bool;
     public let nativeFlee: Bool;
+    public let limbsMissing: Bool;
+    public let wasAware: Bool;
 }
 
 public class GRNemesisEvent {
@@ -30,6 +32,7 @@ public class GRNemesisEvent {
     public let posX: Float;
     public let posY: Float;
     public let posZ: Float;
+    public let limbsMissing: Bool;
 }
 
 public class GRDetection extends ScriptableSystem {
@@ -137,6 +140,26 @@ public class GRDetection extends ScriptableSystem {
         return !IsDefined(npc) || npc.IsDead() || ScriptedPuppet.IsDefeated(npc) || ScriptedPuppet.IsUnconscious(npc);
     }
 
+    // Being in combat, or even having V on this NPC's hostile-threat list, isn't enough:
+    // a barrel explosion or a remote quickhack can alert and injure them without them ever
+    // actually spotting V (a tracked threat can be a last-known/suspected position, not a
+    // confirmed sighting). TrackedLocation.visible is the strict "has actually seen V" flag.
+    public static func IsAwareOfPlayer(npc: ref<ScriptedPuppet>, player: ref<PlayerPuppet>) -> Bool {
+        if !IsDefined(npc) || !IsDefined(player) {
+            return false;
+        }
+        let tracked: TrackedLocation;
+        return TargetTrackingExtension.GetTrackedLocation(npc, player, tracked) && tracked.visible;
+    }
+
+    public static func HasMissingLimb(npc: ref<ScriptedPuppet>) -> Bool {
+        if !IsDefined(npc) || !IsDefined(npc.GetDismembermentComponent()) {
+            return false;
+        }
+        let limbs = npc.GetDismembermentComponent().GetDismemberedLimbCount();
+        return limbs.fleshDismemberments + limbs.cyberDismemberments > 0u;
+    }
+
     private func GetHealthPercent(npc: ref<ScriptedPuppet>) -> Float {
         return GameInstance.GetStatPoolsSystem(this.GetGameInstance()).GetStatPoolValue(Cast<StatsObjectID>(npc.GetEntityID()), gamedataStatPoolType.Health, true);
     }
@@ -198,6 +221,8 @@ public class GRDetection extends ScriptableSystem {
         candidate.gender = npc.GetResolvedGenderName();
         candidate.health = this.GetHealthPercent(npc);
         candidate.position = npc.GetWorldPosition();
+        candidate.limbsMissing = GRDetection.HasMissingLimb(npc);
+        candidate.wasAware = GRDetection.IsAwareOfPlayer(npc, GetPlayer(this.GetGameInstance()));
         return candidate;
     }
 
@@ -207,6 +232,8 @@ public class GRDetection extends ScriptableSystem {
             let candidate: ref<GRCandidate> = this.m_candidates[index];
             candidate.health = this.GetHealthPercent(npc);
             candidate.position = npc.GetWorldPosition();
+            candidate.limbsMissing = GRDetection.HasMissingLimb(npc);
+            candidate.wasAware = candidate.wasAware || GRDetection.IsAwareOfPlayer(npc, GetPlayer(this.GetGameInstance()));
             return candidate;
         }
         let created: ref<GRCandidate> = this.MakeCandidate(npc);
@@ -597,6 +624,7 @@ public class GRDetection extends ScriptableSystem {
                 } else {
                     candidate.health = this.GetHealthPercent(npc);
                     candidate.position = npc.GetWorldPosition();
+                    candidate.limbsMissing = GRDetection.HasMissingLimb(npc);
                     let distance: Float = IsDefined(player) ? Vector4.Distance(npc.GetWorldPosition(), player.GetWorldPosition()) : 0.0;
                     let elapsed: Float = this.Now() - this.m_fleeStart[i];
                     if this.PlayerSees(npc) {
@@ -660,6 +688,7 @@ public class GRDetection extends ScriptableSystem {
         }
         candidate.health = this.GetHealthPercent(npc);
         candidate.position = npc.GetWorldPosition();
+        candidate.limbsMissing = GRDetection.HasMissingLimb(npc);
         let gi: GameInstance = this.GetGameInstance();
         let spawner: ref<GRSpawner> = GRSpawner.Get(gi);
         if IsDefined(spawner) && spawner.IsOwnSpawn(id) {
@@ -718,15 +747,24 @@ public class GRDetection extends ScriptableSystem {
             return;
         }
         if kind == GRDetectionCall.PlayerHitNPC() {
-            this.OnPlayerHitNPC(npc);
+            this.OnPlayerHitNPC(npc, false);
         } else {
             if kind == GRDetectionCall.NPCHitPlayer() {
                 this.OnNPCHitPlayer(npc);
+            } else {
+                if kind == GRDetectionCall.PlayerTakedownNPC() {
+                    this.OnPlayerHitNPC(npc, true);
+                }
             }
         }
     }
 
-    private func OnPlayerHitNPC(npc: ref<ScriptedPuppet>) {
+    // forceKnockout is for a non-lethal grapple/finisher takedown (LocomotionTakedownEvents.DefeatTarget,
+    // Stronghold.reds): the takedown animation itself guarantees the NPC goes unconscious regardless of
+    // their actual health - most of the time the whole point is a quiet takedown on someone still at or
+    // near full health - so TryKnockOut's normal "health <= flee threshold" gate would otherwise reject it
+    // and silently skip the intel shard for every "clean" non-lethal takedown.
+    private func OnPlayerHitNPC(npc: ref<ScriptedPuppet>, forceKnockout: Bool) {
         let hiding: ref<GRCandidate> = this.FindHiding(npc.GetEntityID());
         if IsDefined(hiding) {
             hiding.discovered = true;
@@ -741,7 +779,9 @@ public class GRDetection extends ScriptableSystem {
             intel.NoteCombatant(npc);
             let settings: ref<GRSettings> = GRSettings.Get(this.GetGameInstance());
             let fleeBase: Int32 = IsDefined(settings) ? settings.fleeHealthPercent : 35;
-            intel.TryKnockOut(npc, this.GetHealthPercent(npc), GRIntegrations.GetFleePercent(fleeBase));
+            let threshold: Float = GRIntegrations.GetFleePercent(fleeBase);
+            let health: Float = forceKnockout ? threshold : this.GetHealthPercent(npc);
+            intel.TryKnockOut(npc, health, threshold);
         }
         this.UpsertCandidate(npc);
         this.CheckLastStanding();
@@ -813,9 +853,12 @@ public class GRDetection extends ScriptableSystem {
             if IsDefined(candidate) {
                 npc = GameInstance.FindEntityByID(this.GetGameInstance(), candidate.entityID) as ScriptedPuppet;
             }
-            if IsDefined(npc) && !GRDetection.IsNeutralized(npc) && !GRDetection.IsPlayerAlly(npc) {
+            if IsDefined(npc) && !npc.IsDead() && !GRDetection.IsPlayerAlly(npc) {
                 candidate.health = this.GetHealthPercent(npc);
                 candidate.position = npc.GetWorldPosition();
+                candidate.limbsMissing = GRDetection.HasMissingLimb(npc);
+                candidate.wasAware = candidate.wasAware || GRDetection.IsAwareOfPlayer(npc, GetPlayer(this.GetGameInstance()));
+                let unconscious: Bool = ScriptedPuppet.IsDefeated(npc) || ScriptedPuppet.IsUnconscious(npc);
 
                 if debugLog {
                     let msg: String = "Fin de combate: ";
@@ -826,11 +869,29 @@ public class GRDetection extends ScriptableSystem {
                     if candidate.fleeing {
                         msg += " (huyendo)";
                     }
+                    if unconscious {
+                        msg += " (inconsciente)";
+                        if !candidate.wasAware {
+                            msg += " (sigiloso, no vio a V)";
+                        }
+                    }
                     GRLog(msg);
                 }
 
                 let pacified: Bool = IsDefined(spawner) && spawner.IsLeftover(candidate.entityID) && !candidate.fled;
-                if !pacified && !candidate.fleeing && candidate.health > 0.0 && (candidate.health <= threshold || candidate.fled) {
+                if unconscious {
+                    if !pacified && candidate.wasAware {
+                        if RandRange(0, 100) < settings.knockoutChancePercent {
+                            this.Promote(candidate, "knockedout");
+                        } else {
+                            this.Debug("Derribo: tirada fallida (" + IntToString(settings.knockoutChancePercent) + "%), no se registra: " + candidate.gang);
+                        }
+                    } else {
+                        if !pacified {
+                            this.Debug("Derribo sigiloso: no se registra (nunca vio a V, nemesisId=" + IntToString(candidate.nemesisId) + "): " + candidate.gang);
+                        }
+                    }
+                } else if !pacified && !candidate.fleeing && candidate.health > 0.0 && (candidate.health <= threshold || candidate.fled) {
                     this.Promote(candidate, candidate.fled ? "fled" : "escaped");
                 }
             }
@@ -885,6 +946,7 @@ public class GRDetection extends ScriptableSystem {
         evt.posX = candidate.position.X;
         evt.posY = candidate.position.Y;
         evt.posZ = candidate.position.Z;
+        evt.limbsMissing = candidate.limbsMissing;
         ArrayPush(this.m_pending, evt);
         GRLog("Nuevo Nemesis (" + origin + "): " + evt.gang + " " + evt.recordID);
     }
@@ -967,6 +1029,7 @@ public class GRDetectionCall extends DelayCallback {
     public static func Vanish() -> Int32 { return 5; }
     public static func Unblind() -> Int32 { return 6; }
     public static func NPCDeathByV() -> Int32 { return 7; }
+    public static func PlayerTakedownNPC() -> Int32 { return 8; }
 
     public static func Send(gi: GameInstance, kind: Int32, id: EntityID) {
         GRDetectionCall.SendDelayed(gi, kind, id, 0.0);
@@ -1169,6 +1232,28 @@ public func EvaluateHit(newHitEvent: ref<gameHitEvent>) -> Void {
         if IsDefined(npc) && GRDetection.IsEligible(npc) {
             GRDetectionCall.Send(npc.GetGame(), GRDetectionCall.PlayerHitNPC(), npc.GetEntityID());
         }
+    }
+}
+
+// Grapple/finisher takedowns (both lethal and non-lethal) never fire a gameHitEvent, so EvaluateHit above
+// never sees them - the grappled NPC was never added as a candidate, never promotion-eligible, and never
+// given an intel shard even with the gang's attention already on V. DefeatTarget is the one place the
+// native takedown state machine calls unconditionally for every takedown type (the switch above it in
+// SelectSyncedAnimationAndExecuteAction only picks the animation/effect tag), so hook it here and feed the
+// same pipeline EvaluateHit already uses instead of duplicating candidate/intel logic.
+// effectTag tells us whether this was a non-lethal knockout ("setUnconscious"/"setUnconsciousAerialTakedown"/
+// "setUnconsciousTakedownMassiveTarget"/"setUnconsciousTakedownNetrunner" - all contain "Unconscious") or a
+// lethal one ("kill"): only the non-lethal case needs PlayerTakedownNPC's forced-knockout handling, since a
+// takedown (same as a jump/aerial one) can knock someone out from full health with no health-chipping
+// involved - the lethal case still benefits from normal candidate tracking, but the kill itself is already
+// attributed separately via the existing NPCPuppet.OnDeath wrap below.
+@wrapMethod(LocomotionTakedownEvents)
+private final func DefeatTarget(stateContext: ref<StateContext>, scriptInterface: ref<StateGameScriptInterface>, activator: wref<GameObject>, target: wref<GameObject>, effectName: CName, effectTag: CName) -> Void {
+    wrappedMethod(stateContext, scriptInterface, activator, target, effectName, effectTag);
+    let npc: ref<ScriptedPuppet> = target as ScriptedPuppet;
+    if IsDefined(npc) && IsDefined(activator as PlayerPuppet) && GRDetection.IsEligible(npc) {
+        let nonLethal: Bool = StrContains(NameToString(effectTag), "Unconscious");
+        GRDetectionCall.Send(npc.GetGame(), nonLethal ? GRDetectionCall.PlayerTakedownNPC() : GRDetectionCall.PlayerHitNPC(), npc.GetEntityID());
     }
 }
 

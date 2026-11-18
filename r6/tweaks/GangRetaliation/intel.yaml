@@ -1,50 +1,21 @@
-# Gang Retaliation - intel: "Extraer datos" sobre un pandillero que el mod dejo inconsciente.
-# Copia de la accion nativa "Invadir red" (Takedown.BreachUnconsciousOfficer), misma capa (Loot). Cambios:
-# - actionName propio: con "PhysicalBreach" el juego la volvia un AccessBreach (subida + minijuego) que no terminaba;
-# - activationTime vacio: el juego la completa enseguida y redscript hace la extraccion (barra de 3 s en el HUD);
-# - sin el prereq de Officer (sobre el objetivo) ni el de ciberdeck (sobre V), y sin "V en exploracion" (se usa en combate);
-# - solo sobre NPC con el estado GangRetaliation.IntelTarget (lo pone redscript a los elegibles al tirarlos).
-# Ningun record Character.* la tiene: redscript la agrega a los NPC inconscientes (wrap de GetValidChoices).
+# Gang Retaliation - intel.
+# Hasta el 2026-11-18 esto tenia una accion "Extraer datos" (Takedown.GRExtractData, copia de
+# Takedown.BreachUnconsciousOfficer) mas un marcador de mapa/HUD propio para los pandilleros inconscientes
+# elegibles. Se retiraron ese dia (confirmados en NOTES.md) una vez el shard de intel probo funcionar de
+# forma consistente: hoy el intel se gana recogiendo el shard del botin normal del cadaver, sin interaccion
+# ni marcador propios - ver GRIntelSystem en Stronghold.reds (TryKnockOut/GiveIntelShard/OnShardLooted) y
+# r6/tweaks/GangRetaliation/shard.yaml para el item en si.
+#
+# Lo que sigue abajo (variante de marcador + filtro del mapa) sigue en uso: las GUARIDAS (Stronghold.reds,
+# GRStronghold) todavia lo necesitan para su propio icono en el mapa grande.
 
-Takedown.GRExtractData:
-  $base: Takedown.BreachUnconsciousOfficer
-  actionName: GRExtractData
-  activationTime: []
-  rewards: []
-  instigatorPrereqs:
-    - Takedown.GeneralStateChecks
-    - Takedown.IsPlayerInAcceptableGroundLocomotionState
-    - Takedown.PlayerNotInSafeZone
-    - Takedown.GameplayRestrictions
-    - Takedown.BreachUnconsciousOfficer_inline0
-    - Takedown.BreachUnconsciousOfficer_inline1
-  targetPrereqs:
-    - Takedown.BreachUnconsciousOfficer_inline4
-    - GangRetaliation.IntelTargetPrereq
-  objectActionUI: Interactions.GRExtractData
-
-# Tecla 1 (Choice3, apretar): R (Choice2_Hold) es "Recoger cuerpo" y F es "Coger"/"Cogerlo todo".
-# Texto: LocKey#7000 es "Extract Data" / "Extraer datos" del juego, ya traducido a todos los idiomas.
-Interactions.GRExtractData:
-  $base: Interactions.BreachUnconsciousOfficer
-  action: Choice3
-  caption: LocKey#7000
-
-# Marca de "se le pueden extraer datos": un estado vacio, sin efectos (copia de BaseStatusEffect.BlockGrapple).
-GangRetaliation.IntelTarget:
-  $base: BaseStatusEffect.BlockGrapple
-
-GangRetaliation.IntelTargetPrereq:
-  $base: Takedown.BreachUnconsciousOfficer_inline4
-  statusEffect: GangRetaliation.IntelTarget
-
-# Casilla "GANG RETALIATION" (guaridas e intel) en la lista de filtros del mapa grande (filtro rapido PERSONALIZADA). Misma tecnica que el mod
+# Casilla "GANG RETALIATION" (guaridas) en la lista de filtros del mapa grande (filtro rapido PERSONALIZADA). Misma tecnica que el mod
 # Drug Dealer (credito v1ld): un grupo de filtro propio agregado a la lista del juego.
 # - filterName: clave de texto (Localization.reds, GR-MapFilterStrongholds).
 # - filterType: el enum gamedataWorldMapFilter es nativo y no se puede ampliar. WorldMap.RelicDeviceFilter es un
 #   record del juego (enum RelicDeviceFilter) que ningun grupo usa. Drug Dealer usa VehicleForSaleFilter: no chocan.
 #   Tiene que coincidir con GRStronghold.MapFilter() (Stronghold.reds).
-# - mappins: las guaridas y los iconos de intel usan su propia variante de marcador (Mappins.GRStrongholdVariant) y el juego mismo decide
+# - mappins: las guaridas usan su propia variante de marcador (Mappins.GRStrongholdVariant) y el juego mismo decide
 #   cuando se ven segun la casilla (misma tecnica que Icon Framework). La variante es CPO_PingDoorVariant, una variante
 #   del modo cooperativo cancelado que el juego individual no usa (comprobado: ningun grupo de filtro la lista, solo
 #   Mappins.CPO_PingSystemMappinDefinition). Icon Framework usa CPO_PingGoHereVariant: no chocan.

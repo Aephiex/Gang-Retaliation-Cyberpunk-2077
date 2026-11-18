@@ -1,0 +1,106 @@
+# Gang Retaliation - shard de intel (prueba, 2026-11-18): item generico que se le da a un pandillero
+# inconsciente/muerto via TransactionSystem.GiveItem (Stronghold.reds, GRIntelSystem.GiveIntelShard), igual
+# que cualquier otro botin del cadaver. Al sacarlo del inventario del NPC (lo saquea V) se detecta por TDBID
+# (wrap de ScriptedPuppet.OnItemRemovedEvent) y se destruye enseguida (igual que el truco nativo de los
+# "Money Shard": nunca se queda de verdad en el inventario de V).
+#
+# Primer intento (sin $base, solo $type: Item_Record) compilaba y cargaba sin error en TweakXL, pero
+# GiveItem() devolvia true sin que el item realmente apareciera en el inventario del NPC (confirmado en
+# juego via CET: TransactionSystem.GetItemList solo mostraba Items.money, nunca el shard) - probablemente
+# le faltaban campos que el motor necesita para materializar un item real. Corregido basando el record en
+# Items.Readable (confirmado existente via el Tweak Browser de WolvenKit), un item generico real del juego.
+#
+# itemType forzado a Gen_Misc (y no el Gen_Readable heredado de Items.Readable): confirmado en juego que
+# Gen_Readable hace que el motor lo quite solo del inventario de V al recogerlo Y muestre una notificacion
+# en pantalla con el "texto de lectura" del item (player.swift, OnItemAddedToInventory) - como no definimos
+# contenido de lectura real, esa notificacion salia en blanco. Con Gen_Misc no hay rama especial para este
+# item en ese mismo switch, asi que ya no aparece sola: la quita nuestro propio wrap en Stronghold.reds
+# (OnItemAddedToInventory sobre PlayerPuppet), igual que el truco nativo con los "Money Shard".
+#
+# Un record POR BANDA (y no uno compartido con el nombre generico "Gang Intel Shard"): ItemID.FromTDBID(tdbid)
+# da el MISMO ItemID para todo shard construido con el mismo TDBID, asi que un solo record compartido no
+# puede distinguir de que banda vino un shard concreto una vez en la pantalla de botin - no hay forma de
+# guardar ese dato por instancia sin arriesgar choques entre bandas distintas con botines simultaneos en el
+# mundo. Nueve records identicos salvo displayName es mas simple y confiable que inventar seguimiento por
+# instancia. GRIntelSystem.ShardRecordFor(gang) (Stronghold.reds) hace el mapeo, igual que WeaponForGang()
+# ya hace para las armas de Jefe en Rewards.reds.
+Items.GRIntelShard_Maelstrom:
+  $base: Items.Readable
+  itemType: ItemType.Gen_Misc
+  quality: Quality.Legendary
+  displayName: GR-IntelShardName-Maelstrom
+  localizedDescription: GR-IntelShardDesc
+  tags:
+    - GRIntelShard
+
+Items.GRIntelShard_TygerClaws:
+  $base: Items.Readable
+  itemType: ItemType.Gen_Misc
+  quality: Quality.Legendary
+  displayName: GR-IntelShardName-TygerClaws
+  localizedDescription: GR-IntelShardDesc
+  tags:
+    - GRIntelShard
+
+Items.GRIntelShard_Valentinos:
+  $base: Items.Readable
+  itemType: ItemType.Gen_Misc
+  quality: Quality.Legendary
+  displayName: GR-IntelShardName-Valentinos
+  localizedDescription: GR-IntelShardDesc
+  tags:
+    - GRIntelShard
+
+Items.GRIntelShard_SixthStreet:
+  $base: Items.Readable
+  itemType: ItemType.Gen_Misc
+  quality: Quality.Legendary
+  displayName: GR-IntelShardName-SixthStreet
+  localizedDescription: GR-IntelShardDesc
+  tags:
+    - GRIntelShard
+
+Items.GRIntelShard_Animals:
+  $base: Items.Readable
+  itemType: ItemType.Gen_Misc
+  quality: Quality.Legendary
+  displayName: GR-IntelShardName-Animals
+  localizedDescription: GR-IntelShardDesc
+  tags:
+    - GRIntelShard
+
+Items.GRIntelShard_VoodooBoys:
+  $base: Items.Readable
+  itemType: ItemType.Gen_Misc
+  quality: Quality.Legendary
+  displayName: GR-IntelShardName-VoodooBoys
+  localizedDescription: GR-IntelShardDesc
+  tags:
+    - GRIntelShard
+
+Items.GRIntelShard_Wraiths:
+  $base: Items.Readable
+  itemType: ItemType.Gen_Misc
+  quality: Quality.Legendary
+  displayName: GR-IntelShardName-Wraiths
+  localizedDescription: GR-IntelShardDesc
+  tags:
+    - GRIntelShard
+
+Items.GRIntelShard_Scavengers:
+  $base: Items.Readable
+  itemType: ItemType.Gen_Misc
+  quality: Quality.Legendary
+  displayName: GR-IntelShardName-Scavengers
+  localizedDescription: GR-IntelShardDesc
+  tags:
+    - GRIntelShard
+
+Items.GRIntelShard_Barghest:
+  $base: Items.Readable
+  itemType: ItemType.Gen_Misc
+  quality: Quality.Legendary
+  displayName: GR-IntelShardName-Barghest
+  localizedDescription: GR-IntelShardDesc
+  tags:
+    - GRIntelShard

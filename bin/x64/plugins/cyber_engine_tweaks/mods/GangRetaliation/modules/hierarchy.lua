@@ -274,7 +274,8 @@ function Hierarchy.revive(campaign, n, ctx)
     n.diedBy = nil
     n.diedByGang = nil
     n.returns = (n.returns or 0) + 1
-    n.origin = "returned"
+    n.origin = n.koDeath and "returnedknockout" or "returned"
+    n.koDeath = nil
     n.health = 100
     n.titleEn, n.titleEs = Names.returnedTitle(n.gender)
     Hierarchy.addRenown(n, 3)

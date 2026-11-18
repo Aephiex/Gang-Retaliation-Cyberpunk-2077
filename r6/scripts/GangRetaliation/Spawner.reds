@@ -7,6 +7,8 @@ public class GRSpawner extends ScriptableSystem {
 
     private let m_nemesisIDs: array<Int32>;
 
+    private let m_headRemovedIds: array<EntityID>;
+
     private let m_lines: array<String>;
 
     private let m_speakers: array<String>;
@@ -30,6 +32,7 @@ public class GRSpawner extends ScriptableSystem {
 
     private let m_deaths: array<Int32>;
     private let m_deathKinds: array<String>;
+    private let m_deathEntityIDs: array<EntityID>;
 
     private let m_finisherIds: array<Int32>;
 
@@ -437,33 +440,57 @@ public class GRSpawner extends ScriptableSystem {
         if index >= 0 {
             this.RemoveMappin(index);
             if this.m_nemesisIDs[index] > 0 {
-                this.RecordDeath(this.m_nemesisIDs[index], npc);
+                this.RecordDeath(this.m_nemesisIDs[index], npc, id);
                 this.m_nemesisIDs[index] = 0;
             }
             return;
         }
         let left: Int32 = this.LeftoverIndex(id);
         if left >= 0 && this.m_leftNemesis[left] > 0 {
-            this.RecordDeath(this.m_leftNemesis[left], npc);
+            this.RecordDeath(this.m_leftNemesis[left], npc, id);
             this.m_leftNemesis[left] = 0;
         }
     }
 
-    private func RecordDeath(nemesisId: Int32, npc: ref<ScriptedPuppet>) {
+    private func RecordDeath(nemesisId: Int32, npc: ref<ScriptedPuppet>, id: EntityID) {
+        let headRemoved: Bool = ArrayContains(this.m_headRemovedIds, id);
         let kind: String = this.DeathKind(nemesisId, npc);
         ArrayPush(this.m_deaths, nemesisId);
+        ArrayPush(this.m_deathEntityIDs, id);
         let cause: String = this.TakeLastHit(nemesisId);
         if NotEquals(cause, "v") && this.KilledByPlayer(npc as NPCPuppet) {
             GRLog("Nemesis #" + IntToString(nemesisId) + ": muerte indirecta (" + cause + "), atribuida a V");
             cause = "v";
         }
-        if Equals(kind, "confirmed") && NotEquals(cause, "v") {
+        if Equals(kind, "confirmed") && NotEquals(cause, "v") && !headRemoved {
             kind = "normal";
+        }
+        if headRemoved {
+            kind = "confirmed";
         }
         ArrayPush(this.m_deathKinds, kind);
         ArrayPush(this.m_deathCauses, cause);
         ArrayRemove(this.m_finisherIds, nemesisId);
-        GRLog("Nemesis #" + IntToString(nemesisId) + " muerto (" + kind + ", " + cause + ")");
+        ArrayRemove(this.m_headRemovedIds, id);
+        GRLog("Nemesis #" + IntToString(nemesisId) + " muerto (" + kind + ", " + cause + ", decapitado=" + (headRemoved ? "si" : "no") + ")");
+    }
+
+    public func MarkHeadRemoved(id: EntityID) {
+        let pendingIndex: Int32 = ArraySize(this.m_deathEntityIDs) - 1;
+        while pendingIndex >= 0 {
+            if Equals(this.m_deathEntityIDs[pendingIndex], id) {
+                if NotEquals(this.m_deathKinds[pendingIndex], "confirmed") {
+                    this.m_deathKinds[pendingIndex] = "confirmed";
+                    GRLog("Nemesis #" + IntToString(this.m_deaths[pendingIndex]) + ": decapitacion llegada tras la muerte, actualizada a confirmada (no vuelve)");
+                }
+                return;
+            }
+            pendingIndex -= 1;
+        }
+        if !ArrayContains(this.m_headRemovedIds, id) {
+            ArrayPush(this.m_headRemovedIds, id);
+            GRLog("Decapitacion registrada (entidad en espera de muerte confirmada)");
+        }
     }
 
     private func KilledByPlayer(npc: ref<NPCPuppet>) -> Bool {
@@ -499,12 +526,9 @@ public class GRSpawner extends ScriptableSystem {
         if ArrayContains(this.m_finisherIds, nemesisId) {
             return "confirmed";
         }
-        if IsDefined(npc) && IsDefined(npc.GetDismembermentComponent()) {
-            let limbs = npc.GetDismembermentComponent().GetDismemberedLimbCount();
-            if limbs.fleshDismemberments + limbs.cyberDismemberments > 0u {
-                return "confirmed";
-            }
-        }
+        // Non-head dismemberment no longer forces "confirmed" here - a limb-missing Nemesis still returns
+        // normally (chromed, same as any other return). Head removal alone stays permanent, handled separately
+        // via m_headRemovedIds in RecordDeath().
         return "normal";
     }
 
@@ -2234,6 +2258,7 @@ public class GRSpawner extends ScriptableSystem {
         ArrayClear(this.m_deaths);
         ArrayClear(this.m_deathKinds);
         ArrayClear(this.m_deathCauses);
+        ArrayClear(this.m_deathEntityIDs);
     }
 
     public func GetAppearanceReportCount() -> Int32 {
