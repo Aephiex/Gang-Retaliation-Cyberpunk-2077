@@ -129,6 +129,7 @@ Q/E through all filters (no crash); STRONGHOLDS-only view shows just our markers
 - CET: `Reflection.GetClass("DismembermentComponent")` returns nil; the RTTI name is `gameDismembermentComponent`. Python on Windows needs `PYTHONIOENCODING=utf-8` when printing accented text; a here-doc can collapse backslashes (write scripts to a file).
 - Replaying all markers after a filter change crashed with Icon Framework; re-invoking `OnQuickFilterChanged` cascaded through the filter list. Both were reverted; do not retry.
 - Our early claim that `OutpostVariant` was in an NCPD scanner filter group was wrong (it is in no group's list).
+- 2026-11-18: giving a `HuntForPsychoVariant` world mappin (the nemesis "cyberpsycho above the head" icon, `GRSpawner.AddMappin`) its own `MappinScriptData` subclass via `MappinData.scriptData` made the icon stop rendering entirely, with no compile error and nothing in any log - looked exactly like a false "HUD got disabled" report at first, until we isolated it with a clean revert. Avoid attaching scriptData to that variant; instead look the nemesis up by `mappin.GetEntityID()` through `GRSpawner.GetNemesisRank(id)` from the `@wrapMethod(QuestMappinController) UpdateIcon` hook, then retint via `inkWidgetRef.SetTintColor(this.iconWidget, ...)` (works fine on an `inkImageRef` - same underlying widget ref, just a narrower struct type).
 
 ## 7. General CET / redscript / tooling facts
 

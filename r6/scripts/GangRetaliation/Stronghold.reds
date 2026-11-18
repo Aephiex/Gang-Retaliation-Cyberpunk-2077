@@ -1435,10 +1435,25 @@ protected final func UpdateIcon() -> Void {
     GRApplyMappinIcon(this.GetMappin(), this.iconWidget, GRStrongholdMappinData.ViewMinimap());
 }
 
+// The nemesis "hunt for psycho" world mappin carries no scriptData of its own (attaching one via
+// MappinData.scriptData made the native mappin stop rendering entirely - unknown cause, not worth the risk
+// again): identify it by variant and look its rank up by the EntityID the mappin is already attached to.
 @wrapMethod(QuestMappinController)
 protected func UpdateIcon() -> Void {
     wrappedMethod();
     GRApplyMappinIcon(this.GetMappin(), this.iconWidget, GRStrongholdMappinData.ViewWorld());
+    let mappin: wref<IMappin> = this.GetMappin();
+    if !IsDefined(mappin) || !Equals(mappin.GetVariant(), gamedataMappinVariant.HuntForPsychoVariant) {
+        return;
+    }
+    let spawner: ref<GRSpawner> = GRSpawner.Get(GetGameInstance());
+    if !IsDefined(spawner) {
+        return;
+    }
+    let rank: Int32 = spawner.GetNemesisRank(mappin.GetEntityID());
+    if rank > 0 {
+        inkWidgetRef.SetTintColor(this.iconWidget, GRHud.RankMappinColor(rank));
+    }
 }
 
 // The strongholds use their own variant (so the game can filter them with the STRONGHOLDS checkbox), which has no
