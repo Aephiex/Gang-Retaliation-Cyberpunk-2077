@@ -164,6 +164,8 @@ public class GREnglish extends ModLocalizationPackage {
         this.Text("GR-MenuAugReadyOne", "1 copy ready");
         this.Text("GR-MenuAugNoCopies", "No copies. Kill the next %s Boss.");
         this.Text("GR-MenuAugMaxed", "Weapon maxed out.");
+        this.Text("GR-MenuInStash", "IN THE STASH");
+        this.Text("GR-MenuAugStashed", "Take it out of the stash to use it in Augment.");
         this.Text("GR-MenuAugmentHint", "Fuse a copy into your weapon. The copy is destroyed and its power goes into the weapon.");
         this.Text("GR-MenuAugYours", "Your weapon");
         this.Text("GR-MenuAugCopy", "Copy to be destroyed");
@@ -390,7 +392,10 @@ public class GREnglish extends ModLocalizationPackage {
         this.Text("GR-MsgTraitStrong", "Strength found - %s: %s");
         this.Text("GR-MsgTraitWeak", "Weakness found - %s: %s");
         this.Text("GR-MsgScan", "%s - Strengths: %s. Weaknesses: %s.");
+        this.Text("GR-MsgIntelWeak", "Intel on %s - weakness: %s");
+        this.Text("GR-MsgIntelStrong", "Intel on %s - strength: %s");
         this.Text("GR-UiNone", "none");
+        this.Text("GR-ScanTraits", "Traits:");
         this.Text("GR-UiMarkDead", "Mark dead");
         this.Text("GR-Trait-fireproof", "Fire resistant");
         this.Text("GR-Trait-fear_fire", "Weak to fire");
@@ -583,6 +588,8 @@ public class GRSpanish extends ModLocalizationPackage {
         this.Text("GR-MenuAugReadyOne", "1 copia lista");
         this.Text("GR-MenuAugNoCopies", "Sin copias. Mata al próximo Jefe de %s.");
         this.Text("GR-MenuAugMaxed", "Arma al máximo.");
+        this.Text("GR-MenuInStash", "EN EL ALIJO");
+        this.Text("GR-MenuAugStashed", "Sácala del alijo para usarla en el Aumento.");
         this.Text("GR-MenuAugmentHint", "Fusiona una copia con tu arma. La copia se destruye y su energía pasa al arma.");
         this.Text("GR-MenuAugYours", "Tu arma");
         this.Text("GR-MenuAugCopy", "Copia que se destruye");
@@ -809,7 +816,10 @@ public class GRSpanish extends ModLocalizationPackage {
         this.Text("GR-MsgTraitStrong", "Fortaleza descubierta - %s: %s");
         this.Text("GR-MsgTraitWeak", "Debilidad descubierta - %s: %s");
         this.Text("GR-MsgScan", "%s - Fortalezas: %s. Debilidades: %s.");
+        this.Text("GR-MsgIntelWeak", "Intel sobre %s - debilidad: %s");
+        this.Text("GR-MsgIntelStrong", "Intel sobre %s - fortaleza: %s");
         this.Text("GR-UiNone", "ninguna");
+        this.Text("GR-ScanTraits", "Rasgos:");
         this.Text("GR-UiMarkDead", "Marcar muerto");
         this.Text("GR-Trait-fireproof", "Resistente al fuego");
         this.Text("GR-Trait-fear_fire", "Débil al fuego");

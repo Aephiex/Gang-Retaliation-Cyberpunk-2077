@@ -2154,6 +2154,7 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         ArrayPush(this.m_aCards, weaponIndex);
         let name: String = this.m_rewards.GetOwnedName(weaponIndex);
         let equipped: Bool = this.m_rewards.IsOwnedEquipped(weaponIndex);
+        let stashed: Bool = this.m_rewards.IsOwnedStashed(weaponIndex);
 
         let card: ref<inkCanvas> = new inkCanvas();
         card.SetName(StringToName("gr_weapon_" + IntToString(index)));
@@ -2202,6 +2203,12 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
                 tag.SetMargin(new inkMargin(0.0, 0.0, 0.0, 18.0));
                 tag.Reparent(column);
             }
+            if stashed {
+                let stashTag: ref<inkCompoundWidget> = this.NewTag(this.T("GR-MenuInStash"), 26, this.Grey());
+                stashTag.SetHAlign(inkEHorizontalAlign.Left);
+                stashTag.SetMargin(new inkMargin(0.0, 0.0, 0.0, 18.0));
+                stashTag.Reparent(column);
+            }
             let title: ref<inkText> = this.NewWrappedText(name, 80, this.Gold(), 1170.0);
             title.SetFontStyle(n"Bold");
             title.Reparent(column);
@@ -2232,6 +2239,11 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
                 smallTag.SetMargin(new inkMargin(16.0, 0.0, 0.0, 0.0));
                 smallTag.Reparent(top);
             }
+            if stashed {
+                let smallStash: ref<inkCompoundWidget> = this.NewTag(this.T("GR-MenuInStash"), 20, this.Grey());
+                smallStash.SetMargin(new inkMargin(16.0, 0.0, 0.0, 0.0));
+                smallStash.Reparent(top);
+            }
             let smallName: ref<inkText> = this.NewWrappedText(name, 36, this.Light(), 540.0);
             smallName.SetFontStyle(n"Bold");
             smallName.SetMargin(new inkMargin(0.0, 8.0, 0.0, 0.0));
@@ -2260,6 +2272,12 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
             tag.SetHAlign(inkEHorizontalAlign.Left);
             tag.SetMargin(new inkMargin(0.0, 24.0, 0.0, 0.0));
             tag.Reparent(panel);
+        }
+        if this.m_rewards.IsOwnedStashed(weaponIndex) {
+            let stashTag: ref<inkCompoundWidget> = this.NewTag(this.T("GR-MenuInStash"), 26, this.Grey());
+            stashTag.SetHAlign(inkEHorizontalAlign.Left);
+            stashTag.SetMargin(new inkMargin(0.0, 24.0, 0.0, 0.0));
+            stashTag.Reparent(panel);
         }
 
         this.AddSection(panel, this.T("GR-MenuElement"), 44.0);
@@ -2395,7 +2413,8 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         let w: Int32 = 0;
         while w < owned {
             if Equals(this.m_rewards.GetOwnedGang(w), gangKey) {
-                let score: Int32 = RoundF(this.m_rewards.GetOwnedBonusF(w) * 10.0) + (this.m_rewards.IsOwnedEquipped(w) ? 10000 : 0);
+                let score: Int32 = RoundF(this.m_rewards.GetOwnedBonusF(w) * 10.0) + (this.m_rewards.IsOwnedEquipped(w) ? 10000 : 0)
+                    + (this.m_rewards.IsOwnedStashed(w) ? 0 : 20000);
                 if score > mainScore {
                     mainScore = score;
                     main = w;
@@ -2457,12 +2476,28 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         let owned: Int32 = this.m_rewards.GetOwnedCount();
         let w: Int32 = 0;
         while w < owned {
-            if w != main && Equals(this.m_rewards.GetOwnedGang(w), gang) && !this.m_rewards.IsOwnedEquipped(w) {
+            if w != main && Equals(this.m_rewards.GetOwnedGang(w), gang) && !this.m_rewards.IsOwnedEquipped(w) && !this.m_rewards.IsOwnedStashed(w) {
                 ArrayPush(result, w);
             }
             w += 1;
         }
         return result;
+    }
+
+    private func HasStashedCopy(main: Int32) -> Bool {
+        if main < 0 || !IsDefined(this.m_rewards) {
+            return false;
+        }
+        let gang: String = this.m_rewards.GetOwnedGang(main);
+        let owned: Int32 = this.m_rewards.GetOwnedCount();
+        let w: Int32 = 0;
+        while w < owned {
+            if w != main && Equals(this.m_rewards.GetOwnedGang(w), gang) && this.m_rewards.IsOwnedStashed(w) {
+                return true;
+            }
+            w += 1;
+        }
+        return false;
     }
 
     private func AddAugmentButton(detail: ref<inkCanvas>) {
@@ -2495,13 +2530,13 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
         let text: String;
         if this.m_rewards.IsOwnedMaxed(main) {
             text = this.T("GR-MenuAugMaxed");
+        } else if this.m_rewards.IsOwnedStashed(main) || (count == 0 && this.HasStashedCopy(main)) {
+            text = this.T("GR-MenuAugStashed");
+        } else if count == 0 {
+            text = this.Fmt(this.T("GR-MenuAugNoCopies"), "%s", this.ArsenalGangLabel(this.m_rewards.GetOwnedGang(main)));
         } else {
-            if count == 0 {
-                text = this.Fmt(this.T("GR-MenuAugNoCopies"), "%s", this.ArsenalGangLabel(this.m_rewards.GetOwnedGang(main)));
-            } else {
-                this.m_augReady = true;
-                text = count == 1 ? this.T("GR-MenuAugReadyOne") : this.Fmt(this.T("GR-MenuAugReady"), "%d", IntToString(count));
-            }
+            this.m_augReady = true;
+            text = count == 1 ? this.T("GR-MenuAugReadyOne") : this.Fmt(this.T("GR-MenuAugReady"), "%d", IntToString(count));
         }
         this.m_augBorder.SetTintColor(this.m_augReady ? this.Cyan() : this.Dim());
         this.m_augTitle.SetTintColor(this.m_augReady ? this.Cyan() : this.Dim());
@@ -2620,6 +2655,9 @@ public class GRNemesisMenuController extends gameuiMenuGameController {
             return;
         }
         let main: Int32 = this.m_aCards[0];
+        if this.m_rewards.IsOwnedStashed(main) {
+            return;
+        }
         let copies: array<Int32> = this.FusableCopies(main);
         if ArraySize(copies) == 0 {
             return;

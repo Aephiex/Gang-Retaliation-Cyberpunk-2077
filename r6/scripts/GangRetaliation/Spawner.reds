@@ -440,6 +440,7 @@ public class GRSpawner extends ScriptableSystem {
         if index >= 0 {
             this.RemoveMappin(index);
             if this.m_nemesisIDs[index] > 0 {
+                this.GiveDownShard(id, this.m_nemesisIDs[index]);
                 this.RecordDeath(this.m_nemesisIDs[index], npc, id);
                 this.m_nemesisIDs[index] = 0;
             }
@@ -447,8 +448,16 @@ public class GRSpawner extends ScriptableSystem {
         }
         let left: Int32 = this.LeftoverIndex(id);
         if left >= 0 && this.m_leftNemesis[left] > 0 {
+            this.GiveDownShard(id, this.m_leftNemesis[left]);
             this.RecordDeath(this.m_leftNemesis[left], npc, id);
             this.m_leftNemesis[left] = 0;
+        }
+    }
+
+    private func GiveDownShard(id: EntityID, nemesisId: Int32) {
+        let intel: ref<GRIntelSystem> = GRIntelSystem.Get(this.GetGameInstance());
+        if IsDefined(intel) {
+            intel.OnNemesisDown(id, nemesisId, Max(1, this.GetNemesisRank(id)));
         }
     }
 
@@ -526,9 +535,6 @@ public class GRSpawner extends ScriptableSystem {
         if ArrayContains(this.m_finisherIds, nemesisId) {
             return "confirmed";
         }
-        // Non-head dismemberment no longer forces "confirmed" here - a limb-missing Nemesis still returns
-        // normally (chromed, same as any other return). Head removal alone stays permanent, handled separately
-        // via m_headRemovedIds in RecordDeath().
         return "normal";
     }
 

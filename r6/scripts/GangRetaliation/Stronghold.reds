@@ -1435,9 +1435,6 @@ protected final func UpdateIcon() -> Void {
     GRApplyMappinIcon(this.GetMappin(), this.iconWidget, GRStrongholdMappinData.ViewMinimap());
 }
 
-// The nemesis "hunt for psycho" world mappin carries no scriptData of its own (attaching one via
-// MappinData.scriptData made the native mappin stop rendering entirely - unknown cause, not worth the risk
-// again): identify it by variant and look its rank up by the EntityID the mappin is already attached to.
 @wrapMethod(QuestMappinController)
 protected func UpdateIcon() -> Void {
     wrappedMethod();
@@ -1456,8 +1453,6 @@ protected func UpdateIcon() -> Void {
     }
 }
 
-// The strongholds use their own variant (so the game can filter them with the STRONGHOLDS checkbox), which has no
-// world UI profile of its own: give them the one the game uses for OutpostVariant, as they had before.
 @wrapMethod(WorldMappinsContainerController)
 public func CreateMappinUIProfile(mappin: wref<IMappin>, mappinVariant: gamedataMappinVariant, customData: ref<MappinControllerCustomData>) -> MappinUIProfile {
     if Equals(mappinVariant, gamedataMappinVariant.CPO_PingDoorVariant) {
@@ -1468,12 +1463,6 @@ public func CreateMappinUIProfile(mappin: wref<IMappin>, mappinVariant: gamedata
     return wrappedMethod(mappin, mappinVariant, customData);
 }
 
-// The strongholds no longer use the police (NCPD scanner) tooltip: with their own variant the map opens the generic
-// tooltip, which would say "Unknown" without this.
-// Gang banner at the bottom of the stronghold tooltip, built the same way Virtual Atelier Delivery adds its picture
-// (a small widget parented to the tooltip's main content). Atlas: gangretaliation\gui\stronghold_banners.inkatlas,
-// one part per gang named like the gang in lowercase (animals, barghest, maelstrom, scavengers, sixthstreet,
-// tygerclaws, valentinos, voodooboys, wraiths), 680x288 each.
 @addField(WorldMapTooltipController)
 private let m_grBanner: wref<inkCompoundWidget>;
 
@@ -1571,8 +1560,6 @@ public func SetData(const data: script_ref<WorldMapTooltipData>, menu: ref<World
 }
 
 
-// The STRONGHOLDS checkbox is handled by the game itself: the strongholds use their own marker variant
-// (Mappins.GRStrongholdVariant, see tweaks/GangRetaliation/intel.yaml) listed in WorldMap.GRStrongholdFilterGroup.
 @wrapMethod(WorldMapMenuGameController)
 protected cb func OnInitialize() -> Bool {
     let result: Bool = wrappedMethod();
@@ -1604,9 +1591,11 @@ public class GRIntelSystem extends ScriptableSystem {
     private let m_rank: Int32;
     private let m_start: Float;
 
-    // Shard de intel: usado por el wrap de OnItemRemovedEvent para no contar como
-    // "recogido por V" nuestra propia destruccion del shard (ver DestroyIntelShard).
     private let m_suppressShardPickup: EntityID;
+
+    private let m_shardIds: array<EntityID>;
+    private let m_shardRanks: array<Int32>;
+    private let m_shardNemesis: array<Int32>;
 
     public static func Get(gi: GameInstance) -> ref<GRIntelSystem> {
         return GameInstance.GetScriptableSystemsContainer(gi).Get(n"GangRetaliation.GRIntelSystem") as GRIntelSystem;
@@ -1662,9 +1651,6 @@ public class GRIntelSystem extends ScriptableSystem {
         return gang;
     }
 
-    // Shard de intel (prueba, 2026-11-18): un record por banda en vez de uno compartido, porque
-    // ItemID.FromTDBID(tdbid) da el mismo ItemID para cualquier shard construido con el mismo TDBID - no hay
-    // forma de guardar "de que banda vino" por instancia una vez en la pantalla de botin si comparten record.
     public static func ShardRecordFor(gang: String) -> TweakDBID {
         if Equals(gang, "Maelstrom") {
             return t"Items.GRIntelShard_Maelstrom";
@@ -1832,52 +1818,106 @@ public class GRIntelSystem extends ScriptableSystem {
         StatusEffectHelper.ApplyStatusEffect(npc, t"BaseStatusEffect.Unconscious");
         GRLog("Intel: " + gang + " inconsciente para extraer (" + GRIntelSystem.RankName(rank) + ", vida " + IntToString(RoundF(health))
             + "% <= " + IntToString(RoundF(threshold)) + "%) " + TDBID.ToStringDEBUG(npc.GetRecordID()));
-        // Dado via CET a mano en juego (2026-11-18): GiveItem() dentro del propio evento de golpe (sincrono,
-        // a mitad de combate) reporta exito pero el item no persiste - algo en la transicion a "derribado"
-        // probablemente reinicia/limpia el inventario justo despues. Dar el shard con el mismo metodo pero
-        // DEMORADO (0.5 s, una vez asentado el estado) si funciono manualmente, asi que se encola igual.
-        GRIntelCall.Send(this.GetGameInstance(), GRIntelCall.GiveShard(), npc.GetEntityID(), 0.5);
+        this.QueueShard(npc.GetEntityID(), this.NemesisIdOf(npc.GetEntityID()), rank,
+            rank > 0 ? GRIntelCall.GiveShardNemesis() : GRIntelCall.GiveShard());
         return true;
     }
 
-    // --- Shard de intel: unica forma de ganar intel desde 2026-11-18 (el mapa/icono HUD/"Extract Data" se
-    // retiraron ese mismo dia, confirmados funcionando de forma consistente).
+    public func OnNemesisDown(id: EntityID, nemesisId: Int32, rank: Int32) {
+        if rank <= 0 || nemesisId <= 0 {
+            return;
+        }
+        this.QueueShard(id, nemesisId, rank, GRIntelCall.GiveShardNemesis());
+    }
 
-    // Llamado por GRIntelCall.GiveShard() 0.5 s despues de TryKnockOut - ver el comentario de ahi.
-    public func OnGiveShardDelayed(id: EntityID) {
+    private func QueueShard(id: EntityID, nemesisId: Int32, rank: Int32, kind: Int32) {
+        if this.ShardIndex(id) >= 0 {
+            return;
+        }
+        ArrayPush(this.m_shardIds, id);
+        ArrayPush(this.m_shardRanks, rank);
+        ArrayPush(this.m_shardNemesis, nemesisId);
+        GRIntelCall.Send(this.GetGameInstance(), kind, id, 0.5);
+    }
+
+    private func ShardIndex(id: EntityID) -> Int32 {
+        let i: Int32 = 0;
+        while i < ArraySize(this.m_shardIds) {
+            if this.m_shardIds[i] == id {
+                return i;
+            }
+            i += 1;
+        }
+        return -1;
+    }
+
+    private func ForgetShard(id: EntityID) {
+        let i: Int32 = this.ShardIndex(id);
+        if i >= 0 {
+            ArrayErase(this.m_shardIds, i);
+            ArrayErase(this.m_shardRanks, i);
+            ArrayErase(this.m_shardNemesis, i);
+        }
+    }
+
+    private func NemesisIdOf(id: EntityID) -> Int32 {
+        let spawner: ref<GRSpawner> = GRSpawner.Get(this.GetGameInstance());
+        return IsDefined(spawner) ? spawner.GetNemesisId(id) : 0;
+    }
+
+    private func ShardRank(npc: ref<ScriptedPuppet>) -> Int32 {
+        let i: Int32 = this.ShardIndex(npc.GetEntityID());
+        if i >= 0 {
+            return this.m_shardRanks[i];
+        }
+        return this.NemesisRank(npc);
+    }
+
+
+    public func OnGiveShardDelayed(id: EntityID, allowDead: Bool) {
         let npc: ref<ScriptedPuppet> = GameInstance.FindEntityByID(this.GetGameInstance(), id) as ScriptedPuppet;
-        if !IsDefined(npc) || npc.IsDead() {
+        if !IsDefined(npc) {
+            this.ForgetShard(id);
+            return;
+        }
+        if npc.IsDead() && !allowDead {
+            this.ForgetShard(id);
             return;
         }
         let gang: String = GRDetection.GetGang(npc);
-        let rank: Int32 = this.NemesisRank(npc);
         if StrLen(gang) == 0 {
+            this.ForgetShard(id);
             return;
         }
-        this.GiveIntelShard(npc, gang, rank);
+        let i: Int32 = this.ShardIndex(id);
+        let rank: Int32 = i >= 0 ? this.m_shardRanks[i] : this.NemesisRank(npc);
+        let nemesisId: Int32 = i >= 0 ? this.m_shardNemesis[i] : 0;
+        this.GiveIntelShard(npc, gang, rank, nemesisId);
     }
 
-    private func GiveIntelShard(npc: ref<ScriptedPuppet>, gang: String, rank: Int32) {
+    private func GiveIntelShard(npc: ref<ScriptedPuppet>, gang: String, rank: Int32, nemesisId: Int32) {
         let recordID: TweakDBID = GRIntelSystem.ShardRecordFor(gang);
         if !TDBID.IsValid(recordID) {
             return;
         }
         let ts: ref<TransactionSystem> = GameInstance.GetTransactionSystem(this.GetGameInstance());
         let id: ItemID = ItemID.FromTDBID(recordID);
+        let state: String = npc.IsDead() ? "muerto" : "noqueado";
+        if ts.GetItemQuantity(npc, id) > 0 {
+            GRLog("Intel: shard ya presente en " + (nemesisId > 0 ? "Nemesis #" + IntToString(nemesisId) : gang)
+                + " (" + GRIntelSystem.RankName(rank) + ", " + state + "), no se da otro");
+            return;
+        }
         let given: Bool = ts.GiveItem(npc, id, 1);
-        // ScriptedPuppet.OnItemAddedEvent only re-evaluates loot quality/refreshes the loot UI if the NPC
-        // already had a valid loot quality BEFORE this item (HasValidLootQuality() guard in the vanilla
-        // listener) - an NPC with no other loot never gets initialized by that path. Forcing the unguarded
-        // evaluation here (ScriptedPuppet.EvaluateLootQualityEvent, no HasValidLootQuality() check) should
-        // make the shard actually show up in the loot panel instead of silently sitting in the inventory.
         npc.EvaluateLootQualityEvent();
-        GRLog("Intel: shard (prueba) " + (given ? "dado" : "FALLO al dar") + " a " + gang + " (" + GRIntelSystem.RankName(rank) + ") "
+        if !given {
+            this.ForgetShard(npc.GetEntityID());
+        }
+        let who: String = nemesisId > 0 ? "Nemesis #" + IntToString(nemesisId) : gang;
+        GRLog("Intel: shard " + (given ? "dado" : "FALLO al dar") + " a " + who + " (" + GRIntelSystem.RankName(rank) + ", " + state + ") "
             + TDBID.ToStringDEBUG(npc.GetRecordID()));
     }
 
-    // Interruptor de hombre muerto: si el NPC muere de verdad antes de que lo saqueen, el shard se destruye
-    // en silencio (no cuenta como recogido). Si solo quedo inconsciente (o se escapo/desperto), el shard se
-    // queda en su inventario sin tocar.
     private func DestroyIntelShard(npc: ref<ScriptedPuppet>, gang: String) {
         let recordID: TweakDBID = GRIntelSystem.ShardRecordFor(gang);
         if !TDBID.IsValid(recordID) {
@@ -1896,35 +1936,37 @@ public class GRIntelSystem extends ScriptableSystem {
         }
     }
 
-    // Llamado desde el wrap de ScriptedPuppet.OnItemRemovedEvent (mas abajo) cuando el shard sale del
-    // inventario del NPC de origen - o sea, V lo saqueo. Replica el mismo incremento que "Extract Data" usa hoy.
     public func OnShardLooted(npc: ref<ScriptedPuppet>) {
         if !IsDefined(npc) || Equals(npc.GetEntityID(), this.m_suppressShardPickup) {
             return;
         }
         let gang: String = GRDetection.GetGang(npc);
-        let rank: Int32 = this.NemesisRank(npc);
+        let tracked: Bool = this.ShardIndex(npc.GetEntityID()) >= 0;
+        let rank: Int32 = this.ShardRank(npc);
+        this.ForgetShard(npc.GetEntityID());
+        GRLog("Intel: shard saqueado, rango usado " + GRIntelSystem.RankName(rank) + (tracked ? " (recordado al darlo)" : " (sin registro, rango actual)"));
         if StrLen(gang) == 0 {
             GRLog("Intel: shard (prueba) recogido pero sin banda valida, ignorado ("
                 + TDBID.ToStringDEBUG(npc.GetRecordID()) + ")");
             return;
         }
-        // Si ya hay una barra activa (extraccion real u otro shard), NO la pisamos - StartShardBar sobreescribe
-        // m_gang/m_rank/m_start sin avisar, lo que perderia el intel de lo que ya estaba en curso. En ese caso
-        // se suma al instante, sin animacion, en vez de arriesgar perder el dato.
         if this.m_active {
             GRLog("Intel: shard (prueba) recogido con otra barra ya activa, sumado al instante sin animacion, "
                 + gang + " (" + GRIntelSystem.RankName(rank) + ")");
             this.AddIntel(gang, GRIntelSystem.AmountFor(rank), "shard (prueba, sin animacion): " + GRIntelSystem.RankName(rank));
+            this.RevealTraitFromShard(gang);
             return;
         }
         GRLog("Intel: shard (prueba) recogido, " + gang + " (" + GRIntelSystem.RankName(rank) + "), arrancando barra cosmetica");
         this.StartShardBar(gang, rank);
     }
 
-    // Interruptor de hombre muerto del shard (ver DestroyIntelShard): si el NPC muere de verdad antes de
-    // que V saquee el shard, se destruye en silencio.
     public func OnNPCDeath(id: EntityID) {
+        let i: Int32 = this.ShardIndex(id);
+        if i >= 0 && this.m_shardRanks[i] > 0 {
+            return;
+        }
+        this.ForgetShard(id);
         let npc: ref<ScriptedPuppet> = GameInstance.FindEntityByID(this.GetGameInstance(), id) as ScriptedPuppet;
         if !IsDefined(npc) {
             return;
@@ -1973,10 +2015,6 @@ public class GRIntelSystem extends ScriptableSystem {
         return EngineTime.ToFloat(GameInstance.GetSimTime(this.GetGameInstance()));
     }
 
-    // Barra cosmetica "Extracting Intel" al recoger un shard - no depende de un NPC vivo/cerca, el dato ya
-    // esta "en mano" de V al recogerlo (a diferencia de la vieja extraccion en vivo sobre el cuerpo). El
-    // intel se suma recien al llegar al 100%, por pedido del usuario ("have it go and then pop up the intel
-    // % when done"), no al instante de recogerlo.
     private func StartShardBar(gang: String, rank: Int32) {
         this.m_active = true;
         this.m_gang = gang;
@@ -2009,9 +2047,17 @@ public class GRIntelSystem extends ScriptableSystem {
             let rank: Int32 = this.m_rank;
             this.Stop(true, "");
             this.AddIntel(gang, GRIntelSystem.AmountFor(rank), "shard (prueba): " + GRIntelSystem.RankName(rank));
+            this.RevealTraitFromShard(gang);
             return;
         }
         GRIntelCall.Send(this.GetGameInstance(), GRIntelCall.Tick(), new EntityID(), 0.1);
+    }
+
+    private func RevealTraitFromShard(gang: String) {
+        let traits: ref<GRTraits> = GRTraits.Get(this.GetGameInstance());
+        if IsDefined(traits) {
+            traits.RevealFromIntel(gang);
+        }
     }
 
     private func Stop(done: Bool, reason: String) {
@@ -2054,6 +2100,7 @@ public class GRIntelCall extends DelayCallback {
 
     public static func Tick() -> Int32 { return 1; }
     public static func GiveShard() -> Int32 { return 3; }
+    public static func GiveShardNemesis() -> Int32 { return 4; }
 
     public static func Send(gi: GameInstance, kind: Int32, id: EntityID, delay: Float) {
         let call: ref<GRIntelCall> = new GRIntelCall();
@@ -2068,16 +2115,14 @@ public class GRIntelCall extends DelayCallback {
         if !IsDefined(intel) {
             return;
         }
-        if this.kind == GRIntelCall.GiveShard() {
-            intel.OnGiveShardDelayed(this.entityID);
+        if this.kind == GRIntelCall.GiveShard() || this.kind == GRIntelCall.GiveShardNemesis() {
+            intel.OnGiveShardDelayed(this.entityID, this.kind == GRIntelCall.GiveShardNemesis());
             return;
         }
         intel.OnTick();
     }
 }
 
-// Shard de intel (prueba, 2026-11-18): detecta cuando el shard sale del inventario del PROPIO NPC (lo
-// saqueo V), no del inventario de V - asi sabemos de cual cadaver vino sin tener que rastrear el ItemID.
 @wrapMethod(ScriptedPuppet)
 protected cb func OnItemRemovedEvent(evt: ref<ItemBeingRemovedEvent>) -> Bool {
     let result: Bool = wrappedMethod(evt);
@@ -2090,10 +2135,6 @@ protected cb func OnItemRemovedEvent(evt: ref<ItemBeingRemovedEvent>) -> Bool {
     return result;
 }
 
-// Shard de intel (prueba, 2026-11-18): lo saca de encima del inventario de V apenas entra, igual que el
-// motor hace nativamente con los "Money Shard" (player.swift, gamedataItemType.Gen_MoneyShard) - nuestro
-// item usa itemType Gen_Misc a proposito (ver shard.yaml) para NO caer en la rama de Gen_Readable, que lo
-// quita sola pero ademas muestra una notificacion en pantalla vacia (sin contenido de lectura real).
 @wrapMethod(PlayerPuppet)
 protected cb func OnItemAddedToInventory(evt: ref<ItemAddedEvent>) -> Bool {
     let result: Bool = wrappedMethod(evt);

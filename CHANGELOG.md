@@ -1,5 +1,27 @@
 # Changelog - Gang Retaliation
 
+## [Unreleased]
+
+### English
+
+#### Fixed
+- Boss weapons stored in your stash now show in the ARSENAL (marked IN THE STASH; open and close the stash once to register them). Take them out to use them in Augment.
+
+#### Added
+- Intel Shards also reveal a hidden trait of one of the gang's Nemeses, highest rank first.
+- The scanner shows a Nemesis's traits in their own TRAITS section.
+- Every Nemesis who goes down, knocked out or killed, now carries an Intel Shard.
+
+### Español
+
+#### Arreglado
+- Las armas de Jefe que guardas en el alijo ahora aparecen en el ARSENAL (marcadas EN EL ALIJO; abre y cierra el alijo una vez para registrarlas). Sácalas del alijo para usarlas en el Aumento.
+
+#### Añadido
+- Los Intel Shards también revelan un rasgo oculto de uno de los Némesis de la banda, empezando por el de mayor rango.
+- El escáner muestra los rasgos del Némesis en su propia sección RASGOS.
+- Todo Némesis que cae, noqueado o muerto, ahora lleva un Shard de intel.
+
 ## [1.4.9] - 2026-11-18
 
 ### English

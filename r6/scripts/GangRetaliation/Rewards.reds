@@ -5,6 +5,12 @@ public class GRRewards extends ScriptableSystem {
     private persistent let m_nemesisIds: array<Int32>;
     private persistent let m_given: array<Int32>;
     private persistent let m_levels: array<Int32>;
+    private persistent let m_stashed: array<Int32>;
+    private persistent let m_stElement: array<Int32>;
+    private persistent let m_stBonus: array<Float>;
+    private persistent let m_stDamage: array<Float>;
+    private persistent let m_stQuality: array<Int32>;
+    private persistent let m_stPlus: array<Int32>;
 
     private let m_nameIds: array<Int32>;
     private let m_names: array<String>;
@@ -23,6 +29,7 @@ public class GRRewards extends ScriptableSystem {
     private let m_oDamage: array<Float>;
     private let m_oTiers: array<String>;
     private let m_oEquipped: array<Bool>;
+    private let m_oStashed: array<Bool>;
 
     public static func Get(gi: GameInstance) -> ref<GRRewards> {
         return GameInstance.GetScriptableSystemsContainer(gi).Get(n"GangRetaliation.GRRewards") as GRRewards;
@@ -134,6 +141,7 @@ public class GRRewards extends ScriptableSystem {
         ArrayPush(this.m_ids, id);
         ArrayPush(this.m_nemesisIds, nemesisId);
         ArrayPush(this.m_levels, 1);
+        this.PushStashEntry();
         if !ArrayContains(this.m_given, nemesisId) {
             ArrayPush(this.m_given, nemesisId);
         }
@@ -226,6 +234,7 @@ public class GRRewards extends ScriptableSystem {
         ArrayErase(this.m_ids, copyReg);
         ArrayErase(this.m_nemesisIds, copyReg);
         ArrayErase(this.m_levels, copyReg);
+        this.EraseStashEntry(copyReg);
         if copyReg < mainReg {
             mainReg -= 1;
         }
@@ -428,6 +437,7 @@ public class GRRewards extends ScriptableSystem {
         ArrayClear(this.m_oDamage);
         ArrayClear(this.m_oTiers);
         ArrayClear(this.m_oEquipped);
+        ArrayClear(this.m_oStashed);
         let gi: GameInstance = this.GetGameInstance();
         let player: ref<PlayerPuppet> = GetPlayer(gi);
         if !IsDefined(player) {
@@ -459,6 +469,38 @@ public class GRRewards extends ScriptableSystem {
                 ArrayPush(this.m_oDamage, this.ReadStat(data, stats, gamedataStatType.EffectiveDamagePerHit));
                 ArrayPush(this.m_oTiers, tier);
                 ArrayPush(this.m_oEquipped, IsDefined(equipment) && equipment.IsEquipped(id));
+                ArrayPush(this.m_oStashed, false);
+                if this.StashKindAt(i) > 0 {
+                    this.m_stashed[i] = 0;
+                    GRLog("Recompensas: alijo, V volvio a tener #" + IntToString(i) + " " + this.DescribeId(id) + ", se borra la marca de alijo");
+                }
+            } else {
+                let kind: Int32 = this.StashKindAt(i);
+                if kind > 0 && i < ArraySize(this.m_stElement) && i < ArraySize(this.m_stBonus) && i < ArraySize(this.m_stDamage)
+                    && i < ArraySize(this.m_stQuality) && i < ArraySize(this.m_stPlus) {
+                    let cachedElement: Int32 = this.m_stElement[i] - 1;
+                    let cachedBonus: Float = this.m_stBonus[i];
+                    let cachedTier: String = GetLocalizedText(UIItemsHelper.QualityToTierString(IntEnum<gamedataQuality>(this.m_stQuality[i])));
+                    let cachedPlus: Int32 = this.m_stPlus[i];
+                    while cachedPlus > 0 {
+                        cachedTier += "+";
+                        cachedPlus -= 1;
+                    }
+                    ArrayPush(this.m_oIds, id);
+                    ArrayPush(this.m_oNemesis, i < ArraySize(this.m_nemesisIds) ? this.m_nemesisIds[i] : 0);
+                    ArrayPush(this.m_oGangs, this.GangForRecord(ItemID.GetTDBID(id)));
+                    ArrayPush(this.m_oElements, cachedElement);
+                    ArrayPush(this.m_oBonus, RoundF(cachedBonus));
+                    ArrayPush(this.m_oBonusF, cachedBonus);
+                    ArrayPush(this.m_oLevels, this.LevelAt(i));
+                    ArrayPush(this.m_oDamage, this.m_stDamage[i]);
+                    ArrayPush(this.m_oTiers, cachedTier);
+                    ArrayPush(this.m_oEquipped, false);
+                    ArrayPush(this.m_oStashed, true);
+                    GRLog("Recompensas: alijo, #" + IntToString(i) + " " + this.DescribeId(id) + " sale por cache (" + this.StashKindName(kind)
+                        + ") elemento=" + this.ElementLabel(cachedElement) + " bono=" + FloatToStringPrec(cachedBonus, 1) + "% dano="
+                        + FloatToStringPrec(this.m_stDamage[i], 1) + " calidad=" + cachedTier);
+                }
             }
             i += 1;
         }
@@ -654,6 +696,7 @@ public class GRRewards extends ScriptableSystem {
             ArrayErase(this.m_ids, last);
             ArrayErase(this.m_nemesisIds, last);
             ArrayErase(this.m_levels, last);
+            this.EraseStashEntry(last);
         }
         GRLog("Recompensas: quitar Jefe #" + IntToString(nemesisId) + " " + this.DescribeId(id) + " V la tenia=" + this.BoolText(hadIt)
             + " RemoveItem=" + this.BoolText(removed) + " V la sigue teniendo=" + this.BoolText(stillHas)
@@ -673,6 +716,161 @@ public class GRRewards extends ScriptableSystem {
         while ArraySize(this.m_levels) > ArraySize(this.m_ids) {
             ArrayPop(this.m_levels);
         }
+        this.SyncStashLists();
+    }
+
+    private func SyncStashLists() -> Void {
+        let count: Int32 = ArraySize(this.m_ids);
+        let ok: Bool = ArraySize(this.m_stashed) == count && ArraySize(this.m_stElement) == count && ArraySize(this.m_stBonus) == count
+            && ArraySize(this.m_stDamage) == count && ArraySize(this.m_stQuality) == count && ArraySize(this.m_stPlus) == count;
+        if ok {
+            return;
+        }
+        while ArraySize(this.m_stashed) > count {
+            ArrayPop(this.m_stashed);
+        }
+        while ArraySize(this.m_stElement) > count {
+            ArrayPop(this.m_stElement);
+        }
+        while ArraySize(this.m_stBonus) > count {
+            ArrayPop(this.m_stBonus);
+        }
+        while ArraySize(this.m_stDamage) > count {
+            ArrayPop(this.m_stDamage);
+        }
+        while ArraySize(this.m_stQuality) > count {
+            ArrayPop(this.m_stQuality);
+        }
+        while ArraySize(this.m_stPlus) > count {
+            ArrayPop(this.m_stPlus);
+        }
+        while ArraySize(this.m_stashed) < count {
+            ArrayPush(this.m_stashed, 0);
+        }
+        while ArraySize(this.m_stElement) < count {
+            ArrayPush(this.m_stElement, 0);
+        }
+        while ArraySize(this.m_stBonus) < count {
+            ArrayPush(this.m_stBonus, 0.0);
+        }
+        while ArraySize(this.m_stDamage) < count {
+            ArrayPush(this.m_stDamage, 0.0);
+        }
+        while ArraySize(this.m_stQuality) < count {
+            ArrayPush(this.m_stQuality, 0);
+        }
+        while ArraySize(this.m_stPlus) < count {
+            ArrayPush(this.m_stPlus, 0);
+        }
+    }
+
+    private func PushStashEntry() -> Void {
+        ArrayPush(this.m_stashed, 0);
+        ArrayPush(this.m_stElement, 0);
+        ArrayPush(this.m_stBonus, 0.0);
+        ArrayPush(this.m_stDamage, 0.0);
+        ArrayPush(this.m_stQuality, 0);
+        ArrayPush(this.m_stPlus, 0);
+    }
+
+    private func EraseStashEntry(index: Int32) -> Void {
+        if index < 0 {
+            return;
+        }
+        if index < ArraySize(this.m_stashed) {
+            ArrayErase(this.m_stashed, index);
+        }
+        if index < ArraySize(this.m_stElement) {
+            ArrayErase(this.m_stElement, index);
+        }
+        if index < ArraySize(this.m_stBonus) {
+            ArrayErase(this.m_stBonus, index);
+        }
+        if index < ArraySize(this.m_stDamage) {
+            ArrayErase(this.m_stDamage, index);
+        }
+        if index < ArraySize(this.m_stQuality) {
+            ArrayErase(this.m_stQuality, index);
+        }
+        if index < ArraySize(this.m_stPlus) {
+            ArrayErase(this.m_stPlus, index);
+        }
+    }
+
+    private func StashKindAt(index: Int32) -> Int32 {
+        if index < 0 || index >= ArraySize(this.m_stashed) {
+            return 0;
+        }
+        return this.m_stashed[index];
+    }
+
+    private func StashKindName(kind: Int32) -> String {
+        if kind == 2 {
+            return "baul del auto";
+        }
+        return "alijo";
+    }
+
+    public func SyncStash(storage: ref<GameObject>, kind: Int32) -> Void {
+        if !IsDefined(storage) || kind <= 0 {
+            return;
+        }
+        let gi: GameInstance = this.GetGameInstance();
+        let ts: ref<TransactionSystem> = GameInstance.GetTransactionSystem(gi);
+        let stats: ref<StatsSystem> = GameInstance.GetStatsSystem(gi);
+        let player: ref<PlayerPuppet> = GetPlayer(gi);
+        let items: array<wref<gameItemData>>;
+        if !ts.GetItemList(storage, items) {
+            GRLog("Recompensas: alijo, no se pudo leer la lista del " + this.StashKindName(kind) + " (GetItemList=false), no se cambia nada");
+            return;
+        }
+        this.SyncLists();
+        let found: Int32 = 0;
+        let removed: Int32 = 0;
+        let idsText: String = "";
+        let itemCount: Int32 = ArraySize(items);
+        let i: Int32 = 0;
+        while i < ArraySize(this.m_ids) {
+            let id: ItemID = this.m_ids[i];
+            let data: wref<gameItemData>;
+            let k: Int32 = 0;
+            while k < itemCount && !IsDefined(data) {
+                let candidate: wref<gameItemData> = items[k];
+                if IsDefined(candidate) && candidate.GetID() == id {
+                    data = candidate;
+                }
+                k += 1;
+            }
+            if IsDefined(data) {
+                let element: Int32 = this.WeaponElement(data, stats);
+                this.m_stashed[i] = kind;
+                this.m_stElement[i] = element + 1;
+                this.m_stBonus[i] = this.WeaponBonus(data, stats, element);
+                this.m_stDamage[i] = this.ReadStat(data, stats, gamedataStatType.EffectiveDamagePerHit);
+                let quality: gamedataQuality = RPGManager.GetItemQuality(data);
+                this.m_stQuality[i] = EnumInt(quality);
+                this.m_stPlus[i] = RoundF(RPGManager.GetItemPlus(data));
+                found += 1;
+                if StrLen(idsText) > 0 {
+                    idsText += ", ";
+                }
+                idsText += "#" + IntToString(i) + " " + this.DescribeId(id);
+            } else {
+                let mine: Bool = this.m_stashed[i] == kind || (this.m_stashed[i] > 0 && IsDefined(player) && ts.HasItem(player, id));
+                if mine && this.m_stashed[i] > 0 {
+                    this.m_stashed[i] = 0;
+                    removed += 1;
+                }
+            }
+            i += 1;
+        }
+        GRLog("Recompensas: alijo sincronizado (" + this.StashKindName(kind) + ", " + IntToString(itemCount) + " objetos), "
+            + IntToString(found) + " de " + IntToString(ArraySize(this.m_ids)) + " arma(s) registrada(s) estan ahi"
+            + (removed > 0 ? ", " + IntToString(removed) + " ya no estan" : "") + (found > 0 ? ": " + idsText : ""));
+    }
+
+    public func IsOwnedStashed(index: Int32) -> Bool {
+        return this.OwnedValid(index) && this.m_oStashed[index];
     }
 
     private func WeaponForGang(gang: String) -> TweakDBID {
@@ -1037,4 +1235,27 @@ public final func SetData(data: wref<UIInventoryItemStat>) -> Void {
         value.UnbindProperty(n"tintColor");
         value.SetTintColor(color);
     }
+}
+
+@wrapMethod(FullscreenVendorGameController)
+private final func RemoveBB() -> Void {
+    if IsDefined(this.m_storageUserData) && IsDefined(this.m_storageUserData.storageObject) {
+        let storage: ref<GameObject> = this.m_storageUserData.storageObject;
+        let kind: Int32 = 0;
+        if storage.IsPlayerStash() {
+            kind = 1;
+        } else {
+            let vehicle: ref<VehicleObject> = storage as VehicleObject;
+            if IsDefined(vehicle) && vehicle.IsPlayerVehicle() {
+                kind = 2;
+            }
+        }
+        if kind > 0 {
+            let rewards: ref<GRRewards> = GRRewards.Get(storage.GetGame());
+            if IsDefined(rewards) {
+                rewards.SyncStash(storage, kind);
+            }
+        }
+    }
+    wrappedMethod();
 }
