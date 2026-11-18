@@ -747,15 +747,24 @@ public class GRDetection extends ScriptableSystem {
             return;
         }
         if kind == GRDetectionCall.PlayerHitNPC() {
-            this.OnPlayerHitNPC(npc);
+            this.OnPlayerHitNPC(npc, false);
         } else {
             if kind == GRDetectionCall.NPCHitPlayer() {
                 this.OnNPCHitPlayer(npc);
+            } else {
+                if kind == GRDetectionCall.PlayerTakedownNPC() {
+                    this.OnPlayerHitNPC(npc, true);
+                }
             }
         }
     }
 
-    private func OnPlayerHitNPC(npc: ref<ScriptedPuppet>) {
+    // forceKnockout is for a non-lethal grapple/finisher takedown (LocomotionTakedownEvents.DefeatTarget,
+    // Stronghold.reds): the takedown animation itself guarantees the NPC goes unconscious regardless of
+    // their actual health - most of the time the whole point is a quiet takedown on someone still at or
+    // near full health - so TryKnockOut's normal "health <= flee threshold" gate would otherwise reject it
+    // and silently skip the intel shard for every "clean" non-lethal takedown.
+    private func OnPlayerHitNPC(npc: ref<ScriptedPuppet>, forceKnockout: Bool) {
         let hiding: ref<GRCandidate> = this.FindHiding(npc.GetEntityID());
         if IsDefined(hiding) {
             hiding.discovered = true;
@@ -770,7 +779,9 @@ public class GRDetection extends ScriptableSystem {
             intel.NoteCombatant(npc);
             let settings: ref<GRSettings> = GRSettings.Get(this.GetGameInstance());
             let fleeBase: Int32 = IsDefined(settings) ? settings.fleeHealthPercent : 35;
-            intel.TryKnockOut(npc, this.GetHealthPercent(npc), GRIntegrations.GetFleePercent(fleeBase));
+            let threshold: Float = GRIntegrations.GetFleePercent(fleeBase);
+            let health: Float = forceKnockout ? threshold : this.GetHealthPercent(npc);
+            intel.TryKnockOut(npc, health, threshold);
         }
         this.UpsertCandidate(npc);
         this.CheckLastStanding();
@@ -1018,6 +1029,7 @@ public class GRDetectionCall extends DelayCallback {
     public static func Vanish() -> Int32 { return 5; }
     public static func Unblind() -> Int32 { return 6; }
     public static func NPCDeathByV() -> Int32 { return 7; }
+    public static func PlayerTakedownNPC() -> Int32 { return 8; }
 
     public static func Send(gi: GameInstance, kind: Int32, id: EntityID) {
         GRDetectionCall.SendDelayed(gi, kind, id, 0.0);
@@ -1220,6 +1232,28 @@ public func EvaluateHit(newHitEvent: ref<gameHitEvent>) -> Void {
         if IsDefined(npc) && GRDetection.IsEligible(npc) {
             GRDetectionCall.Send(npc.GetGame(), GRDetectionCall.PlayerHitNPC(), npc.GetEntityID());
         }
+    }
+}
+
+// Grapple/finisher takedowns (both lethal and non-lethal) never fire a gameHitEvent, so EvaluateHit above
+// never sees them - the grappled NPC was never added as a candidate, never promotion-eligible, and never
+// given an intel shard even with the gang's attention already on V. DefeatTarget is the one place the
+// native takedown state machine calls unconditionally for every takedown type (the switch above it in
+// SelectSyncedAnimationAndExecuteAction only picks the animation/effect tag), so hook it here and feed the
+// same pipeline EvaluateHit already uses instead of duplicating candidate/intel logic.
+// effectTag tells us whether this was a non-lethal knockout ("setUnconscious"/"setUnconsciousAerialTakedown"/
+// "setUnconsciousTakedownMassiveTarget"/"setUnconsciousTakedownNetrunner" - all contain "Unconscious") or a
+// lethal one ("kill"): only the non-lethal case needs PlayerTakedownNPC's forced-knockout handling, since a
+// takedown (same as a jump/aerial one) can knock someone out from full health with no health-chipping
+// involved - the lethal case still benefits from normal candidate tracking, but the kill itself is already
+// attributed separately via the existing NPCPuppet.OnDeath wrap below.
+@wrapMethod(LocomotionTakedownEvents)
+private final func DefeatTarget(stateContext: ref<StateContext>, scriptInterface: ref<StateGameScriptInterface>, activator: wref<GameObject>, target: wref<GameObject>, effectName: CName, effectTag: CName) -> Void {
+    wrappedMethod(stateContext, scriptInterface, activator, target, effectName, effectTag);
+    let npc: ref<ScriptedPuppet> = target as ScriptedPuppet;
+    if IsDefined(npc) && IsDefined(activator as PlayerPuppet) && GRDetection.IsEligible(npc) {
+        let nonLethal: Bool = StrContains(NameToString(effectTag), "Unconscious");
+        GRDetectionCall.Send(npc.GetGame(), nonLethal ? GRDetectionCall.PlayerTakedownNPC() : GRDetectionCall.PlayerHitNPC(), npc.GetEntityID());
     }
 }
 
