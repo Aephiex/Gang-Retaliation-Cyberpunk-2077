@@ -1,5 +1,35 @@
 # Changelog - Gang Retaliation
 
+## [1.4.9] - 2026-11-18
+
+### English
+
+#### Changed
+- **Intel Shards.** Knock out a gang member and his body carries a gang-branded **Intel Shard**. Loot it and the "Extracting intel" bar fills up and gives you the same intel as before (common +5%, Soldier +10%, Lieutenant +25%, Boss +50%). Kill him before you loot it and the shard is destroyed. This replaces the old "press 1" extraction and its map marker.
+- **Takedowns count.** Grabs and finishers now go through gang detection like any other hit: a non-lethal takedown can give a shard or create a Nemesis.
+- **Knocked out can mean Nemesis.** A gang member you leave unconscious can become a Nemesis (new setting **Knockout promotion chance**, 40% by default). He shows up 1 to 2 days later. Gangers who never spotted V (stealth takedowns, barrel kills, blind quickhacks) don't count.
+- **Finishing a Nemesis off.** Decapitation is always permanent, even if it lands a moment after the kill. Losing another limb is not: that Nemesis comes back with chrome.
+- **Map filter renamed.** The STRONGHOLDS checkbox is now **GANG RETALIATION**.
+- **More names.** Every gang has around 40 to 50 names and handles instead of 12 to 16 (from the Expanded Names lists).
+- **Nemesis marker by rank.** The marker over a Nemesis's head is white, red or gold for Soldier, Lieutenant or Boss.
+- New messages for Nemeses who come back after being knocked out or dismembered.
+- The installed version shows as the last row in Mod Settings.
+
+### Español
+
+#### Cambiado
+- **Shards de intel.** Deja inconsciente a un pandillero y su cuerpo lleva un **Shard de intel** de su banda. Recógelo y la barra "Extrayendo información" se llena y te da la misma intel que antes (común +5 %, Soldado +10 %, Teniente +25 %, Jefe +50 %). Si lo matas antes de recogerlo, el shard se destruye. Reemplaza a la extracción con "1" y a su marcador en el mapa.
+- **Los derribos cuentan.** Los agarres y remates pasan por la detección de bandas como cualquier golpe: un derribo no letal puede dar un shard o crear un Némesis.
+- **Un noqueado puede volverse Némesis.** Un pandillero que dejas inconsciente puede volverse Némesis (nuevo ajuste **Probabilidad de ascenso por derribo**, 40 % por defecto). Aparece 1 o 2 días después. No cuentan los que nunca vieron a V (derribos sigilosos, barriles, hackeos a ciegas).
+- **Rematar a un Némesis.** La decapitación siempre es definitiva, aunque llegue un instante después de la muerte. Perder otro miembro no: ese Némesis vuelve con implantes.
+- **Filtro del mapa renombrado.** La casilla GUARIDAS ahora es **GANG RETALIATION**.
+- **Más nombres.** Cada banda tiene entre 40 y 50 nombres y apodos en vez de 12 a 16 (de las listas de Expanded Names).
+- **Marcador de Némesis por rango.** El marcador sobre la cabeza de un Némesis es blanco, rojo o dorado según sea Soldado, Teniente o Jefe.
+- Mensajes nuevos para los Némesis que vuelven después de quedar noqueados o desmembrados.
+- La versión instalada aparece como última fila en Mod Settings.
+
+Thanks to **RedFalcon** for all of this work. / Gracias a **RedFalcon** por todo este trabajo.
+
 ## [1.4.8] - 2026-11-17
 
 ### English

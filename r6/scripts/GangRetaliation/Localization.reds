@@ -50,7 +50,7 @@ public class GREnglish extends ModLocalizationPackage {
         this.Text("GR-SetDebugLog", "Debug log");
         this.Text("GR-SetDebugLogDesc", "Writes detailed messages to the redscript log and the CET console.");
         this.Text("GR-CatAbout", "About");
-        this.Text("GR-SetVersion", "Gang Retaliation v1.4.8");
+        this.Text("GR-SetVersion", "Gang Retaliation v1.4.9");
         this.Text("GR-SetVersionDesc", "Informational only. Toggling this has no effect.");
         this.Text("GR-CatHud", "HUD");
         this.Text("GR-SetNameplateScale", "Enemy health bar size");
@@ -469,7 +469,7 @@ public class GRSpanish extends ModLocalizationPackage {
         this.Text("GR-SetDebugLog", "Log de depuración");
         this.Text("GR-SetDebugLogDesc", "Escribe mensajes detallados en el log de redscript y en la consola de CET.");
         this.Text("GR-CatAbout", "Acerca de");
-        this.Text("GR-SetVersion", "Gang Retaliation v1.4.8");
+        this.Text("GR-SetVersion", "Gang Retaliation v1.4.9");
         this.Text("GR-SetVersionDesc", "Solo informativo. Activarlo o desactivarlo no hace nada.");
         this.Text("GR-CatHud", "HUD");
         this.Text("GR-SetNameplateScale", "Tamaño de la barra de vida enemiga");

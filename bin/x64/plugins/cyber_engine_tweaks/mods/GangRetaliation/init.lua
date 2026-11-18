@@ -9,7 +9,7 @@ local Vehicles = require("modules/vehicles")
 local CyberLooks = require("modules/cyberlooks")
 
 local GR = {
-    dev = false,
+    dev = true, -- GR_DEV_FLAG
     overlayOpen = false,
     campaignId = 0,
     sessionToken = 0,
