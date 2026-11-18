@@ -201,9 +201,9 @@ local function createNemesis(evt)
         end
     elseif evt.origin == "knockedout" then
         if evt.limbsMissing then
-            notify(string.format(text("GR-MsgKnockedOutDismembered", "%s woke up in extreme pain. They won't forget this."), label))
+            notify(string.format(text("GR-MsgKnockedOutDismembered", "%s awoke with new chrome. They won't forget this."), label))
         else
-            notify(string.format(text("GR-MsgKnockedOut", "%s came to, vowing revenge."), label))
+            notify(string.format(text("GR-MsgKnockedOut", "%s upgraded their chrome, vowing revenge."), label))
         end
     else
         if evt.limbsMissing then

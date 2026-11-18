@@ -88,8 +88,8 @@ public class GREnglish extends ModLocalizationPackage {
         this.Text("GR-RankBoss", "Boss");
         this.Text("GR-MsgEscaped", "%s got away wounded. They will remember you.");
         this.Text("GR-MsgEscapedDismembered", "%s got away missing a limb. They will remember you.");
-        this.Text("GR-MsgKnockedOut", "%s came to, vowing revenge.");
-        this.Text("GR-MsgKnockedOutDismembered", "%s woke up in extreme pain. They won't forget this.");
+        this.Text("GR-MsgKnockedOut", "%s upgraded their chrome, vowing revenge.");
+        this.Text("GR-MsgKnockedOutDismembered", "%s awoke with new chrome. They won't forget this.");
         this.Text("GR-MsgGangFull", "%s already has its maximum of Nemeses.");
         this.Text("GR-MsgAgainEscaped", "%s escaped you again. They are getting stronger.");
         this.Text("GR-MsgAgainEscapedDismembered", "%s escaped you again. They are injured but getting stronger.");
@@ -507,8 +507,8 @@ public class GRSpanish extends ModLocalizationPackage {
         this.Text("GR-RankBoss", "Jefe");
         this.Text("GR-MsgEscaped", "%s se te ha escapado con vida. No te olvidará.");
         this.Text("GR-MsgEscapedDismembered", "%s se te ha escapado sin un miembro. No te olvidará.");
-        this.Text("GR-MsgKnockedOut", "%s ha vuelto en sí jurando venganza.");
-        this.Text("GR-MsgKnockedOutDismembered", "%s se despertó con un dolor espantoso. No lo olvidará.");
+        this.Text("GR-MsgKnockedOut", "%s mejoró su cyberware, jurando venganza.");
+        this.Text("GR-MsgKnockedOutDismembered", "%s despertó con cyberware nuevo. No lo olvidará.");
         this.Text("GR-MsgGangFull", "%s ya tiene el máximo de Némesis.");
         this.Text("GR-MsgAgainEscaped", "%s se te ha vuelto a escapar. Cada vez es más fuerte.");
         this.Text("GR-MsgAgainEscapedDismembered", "%s se te ha vuelto a escapar, herido. Cada vez es más fuerte.");
